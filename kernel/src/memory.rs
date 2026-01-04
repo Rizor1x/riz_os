@@ -1,57 +1,68 @@
-use x86_64::structures::paging::{
-    FrameAllocator, PhysFrame, Size4KiB,
+use x86_64::{
+    structures::paging::{
+        PageTable, OffsetPageTable, FrameAllocator, 
+        PhysFrame, Size4KiB, 
+        // Page удалили, так как он не использовался и вызывал warning
+    },
+    VirtAddr, PhysAddr,
 };
-use x86_64::PhysAddr;
+// PhysFrameRange переехал сюда в x86_64 v0.15
 use limine::memory_map::EntryType;
 
-/// Аллокатор, который создает PhysFrame из карты памяти Limine.
+// --- Исправленный Аллокатор ---
+
 pub struct BootInfoFrameAllocator {
-    // Мы храним копию карты памяти (или итератор), чтобы знать, что свободно
-    memory_map: &'static [limine::memory_map::Entry],
+    // Limine возвращает слайс ССЫЛОК на Entry (&[&Entry]), а не самих Entry
+    memory_map: &'static [&'static limine::memory_map::Entry],
     next: usize,
 }
 
 impl BootInfoFrameAllocator {
-    /// Создает аллокатор на основе карты памяти
-    /// unsafe, так как вызывающий должен гарантировать, что карта памяти валидна
-    pub unsafe fn init(memory_map: &'static [limine::memory_map::Entry]) -> Self {
+    // Принимаем правильный тип данных от Limine
+    pub unsafe fn init(memory_map: &'static [&'static limine::memory_map::Entry]) -> Self {
         BootInfoFrameAllocator {
             memory_map,
             next: 0,
         }
     }
 
-    /// Возвращает итератор по всем свободным фреймам (страницам)
     fn usable_frames(&self) -> impl Iterator<Item = PhysFrame> + '_ {
-        // 1. Берем карту памяти
         self.memory_map
             .iter()
-            // 2. Оставляем только регионы типа USABLE
+            // Разыменовываем двойную ссылку (&&Entry -> &Entry)
+            .map(|&entry| entry)
             .filter(|r| r.entry_type == EntryType::USABLE)
-            // 3. Превращаем регион (start, len) в набор адресов страниц
             .flat_map(|r| {
-                // Выравниваем адреса по 4096 байт
-                let start_addr = r.base;
-                let end_addr = r.base + r.length;
-                
-                let start_frame = PhysFrame::containing_address(PhysAddr::new(start_addr));
-                let end_frame = PhysFrame::containing_address(PhysAddr::new(end_addr - 1));
-                
-                // Создаем диапазон фреймов
-                PhysFrame::range_inclusive(start_frame, end_frame)
+                let start = PhysFrame::containing_address(PhysAddr::new(r.base));
+                let end = PhysFrame::containing_address(PhysAddr::new(r.base + r.length - 1u64));
+                PhysFrame::range_inclusive(start, end)
             })
     }
 }
 
-// Реализуем трейт FrameAllocator из библиотеки x86_64.
-// Это позволит нам использовать этот аллокатор в стандартных функциях ядра.
 unsafe impl FrameAllocator<Size4KiB> for BootInfoFrameAllocator {
     fn allocate_frame(&mut self) -> Option<PhysFrame> {
-        // Мы используем простую стратегию: каждый раз заново проходим и ищем N-ный свободный фрейм.
-        // Это медленно (O(N)), но для инициализации ядра этого достаточно.
-        // Позже мы заменим это на быстрый аллокатор.
         let frame = self.usable_frames().nth(self.next);
         self.next += 1;
         frame
     }
+}
+
+// --- Mapper ---
+
+unsafe fn active_level_4_table(physical_memory_offset: VirtAddr) -> &'static mut PageTable {
+    use x86_64::registers::control::Cr3;
+
+    let (level_4_table_frame, _) = Cr3::read();
+
+    let phys = level_4_table_frame.start_address();
+    let virt = physical_memory_offset + phys.as_u64();
+    let page_table_ptr: *mut PageTable = virt.as_mut_ptr();
+
+    &mut *page_table_ptr
+}
+
+pub unsafe fn init_mapper(physical_memory_offset: VirtAddr) -> OffsetPageTable<'static> {
+    let level_4_table = active_level_4_table(physical_memory_offset);
+    OffsetPageTable::new(level_4_table, physical_memory_offset)
 }

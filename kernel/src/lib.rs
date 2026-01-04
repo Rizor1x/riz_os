@@ -1,7 +1,10 @@
 #![no_std]
+#![feature(alloc_error_handler)] // <--- ДОБАВИТЬ СЮДА
+extern crate alloc; 
 
 pub mod serial;
 pub mod memory;
+pub mod allocator; // <--- Подключаем
 // Если ты уже создал writer.rs и подключил шрифты - раскомментируй следующую строку:
 // pub mod writer; 
 
