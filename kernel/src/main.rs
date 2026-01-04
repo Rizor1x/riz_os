@@ -103,6 +103,12 @@ pub extern "C" fn _start() -> ! {
     
     serial_println!("All Heap tests passed!");
 
+    // --- ТЕСТ ПРЕРЫВАНИЙ ---
+    serial_println!("Invoking Breakpoint Exception...");
+    x86_64::instructions::interrupts::int3(); // <--- МАГИЯ ТУТ
+    
+    serial_println!("It did not crash!");
+
     hcf();
 }
 

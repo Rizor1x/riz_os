@@ -1,10 +1,12 @@
 #![no_std]
 #![feature(alloc_error_handler)] // <--- ДОБАВИТЬ СЮДА
+#![feature(abi_x86_interrupt)] 
 extern crate alloc; 
 
 pub mod serial;
 pub mod memory;
 pub mod allocator; // <--- Подключаем
+pub mod interrupts;
 // Если ты уже создал writer.rs и подключил шрифты - раскомментируй следующую строку:
 // pub mod writer; 
 
@@ -14,6 +16,10 @@ use limine::request::MemoryMapRequest;
 pub fn init(buffer: *mut u8, pitch: u64, width: u64, height: u64, bpp: u16) {
     serial::init();
     serial_println!("Hello from RizOS Kernel!");
+
+    serial_println!("Initializing IDT...");
+    interrupts::init_idt(); // <--- Загружаем таблицу прерываний
+    serial_println!("IDT Initialized.");
 
     // Рисуем синий экран (чтобы видеть, что работает)
     for y in 0..height {
