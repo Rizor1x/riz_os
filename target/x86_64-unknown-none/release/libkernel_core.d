@@ -1,0 +1,1 @@
+/home/rizor1x/Documents/riz_os/target/x86_64-unknown-none/release/libkernel_core.rlib: /home/rizor1x/Documents/riz_os/kernel/src/lib.rs /home/rizor1x/Documents/riz_os/kernel/src/memory.rs /home/rizor1x/Documents/riz_os/kernel/src/serial.rs
