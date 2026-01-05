@@ -24,11 +24,12 @@ pub fn _print(args: core::fmt::Arguments) {
     });
 }
 
-// --- Макросы остаются теми же ---
+// --- МАКРОСЫ ---
+
 #[macro_export]
 macro_rules! serial_print {
     ($($arg:tt)*) => {
-        $crate::serial::_print(format_args!($($arg)*));
+        $crate::serial::_print(format_args!($($arg)*)) // Убрали ; здесь
     };
 }
 

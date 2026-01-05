@@ -109,7 +109,20 @@ pub extern "C" fn _start() -> ! {
     
     serial_println!("It did not crash!");
 
-    hcf();
+    serial_println!("Initializing Keyboard Controller...");
+    
+    kernel_core::interrupts::enable_keyboard(); 
+
+    serial_println!("Enabling Interrupts...");
+    x86_64::instructions::interrupts::enable(); 
+    
+    serial_println!("It did not crash! Waiting for keyboard input...");
+    
+    // Бесконечный цикл работы ОС
+    loop {
+        // hlt останавливает процессор до следующего прерывания (экономит энергию)
+        x86_64::instructions::hlt(); 
+    }
 }
 
 #[panic_handler]
