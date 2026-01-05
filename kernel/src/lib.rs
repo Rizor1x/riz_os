@@ -5,10 +5,11 @@
 extern crate alloc; 
 
 pub mod serial;
-pub mod writer; // <--- ДОБАВИЛИ
+pub mod writer;
 pub mod memory;
 pub mod allocator;
 pub mod interrupts;
+pub mod task;
 
 use limine::request::MemoryMapRequest;
 

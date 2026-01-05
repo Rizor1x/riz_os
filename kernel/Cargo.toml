@@ -15,6 +15,11 @@ font8x8 = { version = "0.3", default-features = false, features = ["unicode"] }
 
 lazy_static = { version = "1.4.0", features = ["spin_no_std"] }
 
+# --- ДЛЯ ПРОИЗВОДИТЕЛЬНОСТИ ---
+crossbeam-queue = { version = "0.3.11", default-features = false, features = ["alloc"] }
+conquer-once = { version = "0.4.0", default-features = false }
+futures-util = { version = "0.3.30", default-features = false, features = ["alloc"] }
+
 [lib]
 name = "kernel_core" # Назовем либу kernel_core
 path = "src/lib.rs"

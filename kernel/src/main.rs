@@ -1,18 +1,21 @@
 #![no_std]
 #![no_main]
-#![feature(alloc_error_handler)] // Тоже нужно тут
 
-extern crate alloc; // Нужно, чтобы использовать макрос vec!
+extern crate alloc;
 
 use core::panic::PanicInfo;
 use limine::BaseRevision;
 use limine::request::{FramebufferRequest, MemoryMapRequest, HhdmRequest};
-use kernel_core::{init, hcf, serial_println};
 
-// Импорты для памяти
+use kernel_core::{init, hcf, serial_println, print, println};
 use kernel_core::memory::BootInfoFrameAllocator;
+use kernel_core::task::{Task, simple_executor::SimpleExecutor};
+use kernel_core::task::keyboard::ScancodeStream;
+
 use x86_64::VirtAddr;
-use alloc::{boxed::Box, vec, vec::Vec, rc::Rc}; // Импортируем типы
+use alloc::{string::String};
+use futures_util::stream::StreamExt;
+use pc_keyboard::{layouts, DecodedKey, HandleControl, Keyboard, ScancodeSet1};
 
 #[used]
 #[link_section = ".requests"]
@@ -30,6 +33,65 @@ pub static MEMORY_MAP_REQUEST: MemoryMapRequest = MemoryMapRequest::new();
 #[link_section = ".requests"]
 pub static HHDM_REQUEST: HhdmRequest = HhdmRequest::new();
 
+fn execute_command(command: &str) {
+    let command = command.trim(); // Убираем пробелы по краям
+    match command {
+        "help" => {
+            println!("\nRizOS Help:");
+            println!("  help  - Show this message");
+            println!("  ver   - Show OS version");
+            println!("  echo  - Print text back");
+            println!("  clear - Clear screen");
+        },
+        "ver" => println!("\nRizOS v0.1.0 (Async Edition)"),
+        "clear" => println!("\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n"),
+        "" => {},
+        cmd => {
+            // Исправленная логика для echo
+            if cmd.starts_with("echo ") {
+                println!("\n{}", &cmd[5..]);
+            } else if cmd == "echo" {
+                println!("\n(Empty echo)");
+            } else {
+                println!("\nUnknown command: '{}'", cmd);
+            }
+        }
+    }
+}
+
+// Теперь принимаем stream как аргумент
+async fn async_keyboard_task(mut scancodes: ScancodeStream) {
+    let mut keyboard = Keyboard::new(ScancodeSet1::new(), layouts::Us104Key, HandleControl::Ignore);
+    let mut command_buffer = String::new();
+
+    while let Some(scancode) = scancodes.next().await {
+        if let Ok(Some(key_event)) = keyboard.add_byte(scancode) {
+            if let Some(key) = keyboard.process_keyevent(key_event) {
+                match key {
+                    DecodedKey::Unicode(character) => match character {
+                        '\n' => {
+                            execute_command(&command_buffer);
+                            command_buffer.clear();
+                            print!("\n> ");
+                        },
+                        '\x08' => {
+                            if !command_buffer.is_empty() {
+                                command_buffer.pop();
+                                print!("{}", character);
+                            }
+                        },
+                        _ => {
+                            command_buffer.push(character);
+                            print!("{}", character);
+                        }
+                    },
+                    DecodedKey::RawKey(_) => {},
+                }
+            }
+        }
+    }
+}
+
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
     unsafe {
@@ -43,90 +105,53 @@ pub extern "C" fn _start() -> ! {
         hcf();
     }
 
+    // 1. Графика
     if let Some(framebuffer_response) = FRAMEBUFFER_REQUEST.get_response() {
         if let Some(framebuffer) = framebuffer_response.framebuffers().next() {
-            init(
-                framebuffer.addr(),
-                framebuffer.pitch(),
-                framebuffer.width(),
-                framebuffer.height(),
-                framebuffer.bpp()
-            );
+            init(framebuffer.addr(), framebuffer.pitch(), framebuffer.width(), framebuffer.height(), framebuffer.bpp());
         }
     }
 
-    // 1. Инициализация Маппера и Аллокатора
-    
-    // Получаем offset
-    let hhdm_offset = HHDM_REQUEST.get_response()
-        .expect("Failed to get HHDM").offset();
+    // 2. Память
+    let hhdm_offset = HHDM_REQUEST.get_response().expect("No HHDM").offset();
     let virt_offset = VirtAddr::new(hhdm_offset);
-    
-    // Получаем карту памяти
-    let memory_map = MEMORY_MAP_REQUEST.get_response()
-        .expect("Failed to get mmap")
-        .entries(); // Это возвращает &[&Entry]
+    let memory_map = MEMORY_MAP_REQUEST.get_response().expect("No Mmap").entries();
 
-    // Инициализируем маппер (управление таблицами страниц)
     let mut mapper = unsafe { kernel_core::memory::init_mapper(virt_offset) };
-    
-    // Инициализируем Frame Allocator (выдача физических страниц)
-    let mut frame_allocator = unsafe {
-        BootInfoFrameAllocator::init(memory_map)
-    };
+    let mut frame_allocator = unsafe { BootInfoFrameAllocator::init(memory_map) };
 
-    // Инициализируем КУЧУ!
-    serial_println!("Initializing Heap...");
-    kernel_core::allocator::init_heap(&mut mapper, &mut frame_allocator)
-        .expect("Heap initialization failed");
+    kernel_core::allocator::init_heap(&mut mapper, &mut frame_allocator).expect("Heap failed");
 
-    serial_println!("Heap Initialized! Testing...");
-
-    // 2. ТЕСТЫ КУЧИ
-    
-    // Тест 1: Box (простое выделение)
-    let heap_value = Box::new(41);
-    serial_println!("heap_value at {:p}", heap_value);
-
-    // Тест 2: Vec (динамический массив)
-    let mut vec = Vec::new();
-    for i in 0..500 {
-        vec.push(i);
-    }
-    serial_println!("Vec created. Length: {}", vec.len());
-    serial_println!("Vec[100] = {}", vec[100]); // Должно быть 100
-
-    // Тест 3: Reference Counting (сложное выделение)
-    let reference_counted = Rc::new(vec![1, 2, 3]);
-    let cloned_reference = reference_counted.clone();
-    serial_println!("current reference count is {}", Rc::strong_count(&cloned_reference));
-    
-    serial_println!("All Heap tests passed!");
-
-    // --- ТЕСТ ПРЕРЫВАНИЙ ---
-    serial_println!("Invoking Breakpoint Exception...");
-    x86_64::instructions::interrupts::int3(); // <--- МАГИЯ ТУТ
-    
-    serial_println!("It did not crash!");
-
+    // 3. Железо
     serial_println!("Initializing Keyboard Controller...");
-    
     kernel_core::interrupts::enable_keyboard(); 
 
+    // 4. Многозадачность
+    let mut executor = SimpleExecutor::new();
+    
+    // --- ИСПРАВЛЕНИЕ ГОНКИ ---
+    // Создаем очередь ДО включения прерываний
+    let scancode_stream = ScancodeStream::new();
+    
+    // Передаем её в задачу
+    executor.spawn(Task::new(async_keyboard_task(scancode_stream)));
+    
+    // Фоновая задача
+    executor.spawn(Task::new(async {
+        serial_println!("Background task started!");
+    }));
+
+    // 5. Теперь безопасно включаем прерывания
     serial_println!("Enabling Interrupts...");
     x86_64::instructions::interrupts::enable(); 
-    
-    serial_println!("It did not crash! Waiting for keyboard input...");
-    
-    // Бесконечный цикл работы ОС
-    loop {
-        // hlt останавливает процессор до следующего прерывания (экономит энергию)
-        x86_64::instructions::hlt(); 
-    }
+
+    executor.run();
+
+    loop { x86_64::instructions::hlt(); }
 }
 
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
-    serial_println!("{}", info); // Теперь печатаем панику в лог!
+    serial_println!("PANIC: {}", info);
     hcf();
 }
