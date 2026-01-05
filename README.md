@@ -1,5 +1,5 @@
 Rust + ASM, build OS roadmap  
-Minimal Cora [+]  
+Minimal Core [+]  
 Memory Map [+]  
 Allocator [+]  
 IDT [+]  
