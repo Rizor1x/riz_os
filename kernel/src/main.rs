@@ -193,7 +193,24 @@ fn execute_command(command: &str) {
                             println!("[-] VMPTRLD Failed!"); 
                         } else {
                             println!("[!!!] SUCCESS: VMCS LOADED & ACTIVE!");
-                            println!("      Ready to configure Guest State.");
+                        
+                            // --- ТЕСТ VMWRITE ---
+                            use kernel_core::hypervisor::vmcs;
+                            
+                            {
+                                // Пробуем записать 0xDEADBEEF в Guest RSP (Стек)
+                                // 0x681c - это GUEST_RSP (см. vmcs.rs)
+                                match vmcs::vmwrite(vmcs::fields::GUEST_RSP, 0xDEADBEEF) {
+                                    Ok(_) => println!("[+] VMWRITE GUEST_RSP success"),
+                                    Err(e) => println!("[-] VMWRITE failed: {}", e),
+                                }
+                                
+                                // Пробуем прочитать обратно
+                                match vmcs::vmread(vmcs::fields::GUEST_RSP) {
+                                    Ok(val) => println!("[+] VMREAD GUEST_RSP: {:#x}", val),
+                                    Err(e) => println!("[-] VMREAD failed: {}", e),
+                                }
+                            }
                         }
                     },
                     None => println!("[-] VMCS Phys translation failed"),

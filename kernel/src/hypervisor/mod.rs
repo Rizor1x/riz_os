@@ -3,6 +3,8 @@ use x86_64::registers::model_specific::Msr;
 
 const IA32_FEATURE_CONTROL: u32 = 0x3A;
 
+pub mod vmcs;
+
 pub unsafe fn enable_vmx() -> Result<(), &'static str> {
     // 1. Enable VMXE
     let mut cr4 = Cr4::read();
