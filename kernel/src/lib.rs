@@ -46,6 +46,9 @@ pub fn init(buffer: *mut u8, pitch: u64, width: u64, height: u64, bpp: u16) {
     serial_println!("Initializing IDT...");
     interrupts::init_idt();
     serial_println!("IDT Initialized.");
+
+    crate::println!("\nType 'help' for commands.");
+    crate::print!("> "); // Приглашение
 }
 
 pub fn print_memory_map(mmap_request: &MemoryMapRequest) {

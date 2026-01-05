@@ -1,8 +1,10 @@
+use pc_keyboard::Keyboard;
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame};
-use crate::{serial_println}; 
+use crate::{serial_println, print, println}; 
 use lazy_static::lazy_static;
 use pic8259::ChainedPics;
 use spin::Mutex;
+use alloc::string::String; // Нам нужна строка
 
 pub const PIC_1_OFFSET: u8 = 32;
 pub const PIC_2_OFFSET: u8 = PIC_1_OFFSET + 8;
@@ -76,36 +78,88 @@ extern "x86-interrupt" fn timer_interrupt_handler(_stack_frame: InterruptStackFr
     }
 }
 
+// Буфер для накопления команды пользователя
+lazy_static! {
+    static ref KEYBOARD: Mutex<Keyboard<pc_keyboard::layouts::Us104Key, pc_keyboard::ScancodeSet1>> =
+        Mutex::new(Keyboard::new(pc_keyboard::ScancodeSet1::new(), pc_keyboard::layouts::Us104Key, pc_keyboard::HandleControl::Ignore));
+        
+    // Строка, куда мы собираем буквы
+    static ref COMMAND_BUFFER: Mutex<String> = Mutex::new(String::new());
+}
+
 extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStackFrame) {
     use x86_64::instructions::port::Port;
-    use pc_keyboard::{layouts, DecodedKey, HandleControl, Keyboard, ScancodeSet1};
-    
-    lazy_static! {
-        static ref KEYBOARD: Mutex<Keyboard<layouts::Us104Key, ScancodeSet1>> =
-            Mutex::new(Keyboard::new(ScancodeSet1::new(), layouts::Us104Key, HandleControl::Ignore));
-    }
+    // ... (импорты портов и кейборда остаются, lazy_static мы вынесли выше) ...
 
     let mut port = Port::new(0x60);
     let scancode: u8 = unsafe { port.read() };
     
     let mut keyboard = KEYBOARD.lock();
+    let mut buffer = COMMAND_BUFFER.lock(); // Блокируем буфер
+
     if let Ok(Some(key_event)) = keyboard.add_byte(scancode) {
         if let Some(key) = keyboard.process_keyevent(key_event) {
             match key {
-                // ИСПРАВЛЕНИЕ ТУТ:
-                // Мы используем crate::print! (печать на экран), а не serial_print!
-                DecodedKey::Unicode(character) => {
-                    crate::print!("{}", character);       // Печать на экран
-                    crate::serial_print!("{}", character); // Дублируем в лог (на всякий случай)
+                pc_keyboard::DecodedKey::Unicode(character) => {
+                    match character {
+                        '\n' => {
+                            // ЕСЛИ НАЖАЛИ ENTER:
+                            println!(); // Перенос строки на экране
+                            
+                            // Выполняем команду
+                            execute_command(&buffer);
+                            
+                            // Очищаем буфер для следующей команды
+                            buffer.clear();
+                            print!("> "); // Рисуем приглашение к вводу
+                        },
+                        '\x08' => {
+                            // ЕСЛИ НАЖАЛИ BACKSPACE:
+                            if !buffer.is_empty() {
+                                // Удаляем последний символ из строки
+                                buffer.pop(); 
+                                // Печатаем Backspace на экран (writer.rs сам сотрет букву)
+                                print!("{}", character); 
+                            }
+                        },
+                        _ => {
+                            // ОБЫЧНАЯ БУКВА:
+                            buffer.push(character); // Запоминаем
+                            print!("{}", character); // Рисуем
+                        }
+                    }
                 },
-                // RawKey (стрелочки, F1-F12) пока игнорируем или пишем только в лог
-                DecodedKey::RawKey(key) => crate::serial_print!("{:?}", key),
+                pc_keyboard::DecodedKey::RawKey(_) => {}, // Игнорируем спецклавиши
             }
         }
     }
 
     unsafe {
         PICS.lock().notify_end_of_interrupt(InterruptIndex::Keyboard.as_u8());
+    }
+}
+
+// Функция выполнения команд
+fn execute_command(command: &str) {
+    match command.trim() { // trim убирает пробелы
+        "help" => {
+            println!("RizOS Help Menu:");
+            println!("  help  - Show this message");
+            println!("  ver   - Show version");
+            println!("  clear - Clear screen");
+        },
+        "ver" => {
+            println!("RizOS v0.1.0 (2026)");
+        },
+        "clear" => {
+             // Чтобы это сработало, нужно сделать writer::WRITER public и добавить метод clear
+             // Пока просто напечатаем много пустоты
+             println!("\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n"); 
+        },
+        "" => {}, // Пустая команда - ничего не делаем
+        _ => {
+            println!("Unknown command: '{}'", command);
+        }
     }
 }
 
