@@ -1,8 +1,9 @@
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame};
-use crate::{serial_println}; 
 use lazy_static::lazy_static;
 use pic8259::ChainedPics;
 use spin::Mutex;
+use x86_64::instructions::port::Port;
+use crate::gdt;
 
 pub const PIC_1_OFFSET: u8 = 32;
 pub const PIC_2_OFFSET: u8 = PIC_1_OFFSET + 8;
@@ -14,6 +15,7 @@ pub static PICS: Mutex<ChainedPics> = Mutex::new(unsafe { ChainedPics::new(PIC_1
 pub enum InterruptIndex {
     Timer = PIC_1_OFFSET,
     Keyboard = PIC_1_OFFSET + 1,
+    Mouse = PIC_1_OFFSET + 12,
 }
 
 impl InterruptIndex {
@@ -30,7 +32,8 @@ lazy_static! {
         idt.breakpoint.set_handler_fn(breakpoint_handler);
         unsafe {
             idt.double_fault.set_handler_fn(double_fault_handler)
-                .set_stack_index(0);
+                // Говорим процессору: "Если случится беда, переключись на этот надежный стек"
+                .set_stack_index(gdt::DOUBLE_FAULT_IST_INDEX); 
         }
         
         // --- ИСПРАВЛЕНИЕ: Используем as_u8() вместо as_usize() ---
@@ -42,6 +45,9 @@ lazy_static! {
         // Клавиатура [33]
         idt[InterruptIndex::Keyboard.as_u8()]
             .set_handler_fn(keyboard_interrupt_handler);
+
+        // Мышь
+        idt[InterruptIndex::Mouse.as_u8()].set_handler_fn(mouse_interrupt_handler);
         
         idt
     };
@@ -92,6 +98,20 @@ extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStac
     }
 }
 
+extern "x86-interrupt" fn mouse_interrupt_handler(_stack_frame: InterruptStackFrame) {
+    use x86_64::instructions::port::Port;
+    
+    let mut port = Port::new(0x60);
+    let packet: u8 = unsafe { port.read() };
+    
+    // Кидаем в очередь
+    crate::task::mouse::add_mouse_packet(packet);
+    
+    unsafe {
+        PICS.lock().notify_end_of_interrupt(InterruptIndex::Mouse.as_u8());
+    }
+}
+
 
 pub fn enable_keyboard() {
     use x86_64::instructions::port::Port;
@@ -130,5 +150,39 @@ pub fn enable_keyboard() {
         
         // 8. На всякий случай сбрасываем саму клавиатуру
         data_port.write(0xF4); // Enable scanning
+    }
+}
+
+pub fn enable_mouse() {
+    let mut command_port = Port::<u8>::new(0x64);
+    let mut data_port = Port::<u8>::new(0x60);
+    
+    unsafe {
+        // 1. Включаем вспомогательное устройство (Мышь)
+        command_port.write(0xA8);
+        
+        // 2. Читаем конфиг
+        command_port.write(0x20);
+        while command_port.read() & 0x01 == 0 {} // Ждем данные
+        let mut status = data_port.read();
+        
+        // 3. Включаем прерывания мыши (Бит 1)
+        status |= 0x02; 
+        
+        // 4. Записываем конфиг обратно
+        command_port.write(0x60);
+        while command_port.read() & 0x02 != 0 {} // Ждем готовности
+        data_port.write(status);
+        
+        // 5. Магия: Разрешаем пакетную передачу
+        // Посылаем команду самой мышке (0xF4 - Enable Data Reporting)
+        // Но так как мышь - это "второе" устройство, нужно сначала сказать контроллеру "следующий байт для мыши" (0xD4)
+        command_port.write(0xD4);
+        while command_port.read() & 0x02 != 0 {}
+        data_port.write(0xF4);
+        
+        // Ждем подтверждения (ACK 0xFA) от мыши
+        while command_port.read() & 0x01 == 0 {}
+        let _ack = data_port.read();
     }
 }

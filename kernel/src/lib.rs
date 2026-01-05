@@ -4,30 +4,33 @@
 
 extern crate alloc; 
 
+// Объявляем модули с поддержкой макросов
+#[macro_use] 
 pub mod serial;
-pub mod writer;
+
+#[macro_use]
+pub mod writer; 
+
 pub mod memory;
 pub mod allocator;
 pub mod interrupts;
 pub mod task;
 pub mod fs;
+pub mod gdt; // Модуль GDT
 
 use limine::request::MemoryMapRequest;
 
 pub fn init(buffer: *mut u8, pitch: u64, width: u64, height: u64, bpp: u16) {
+    // 1. Сначала Serial, чтобы работали логи
     serial::init();
     
-    // --- ИНИЦИАЛИЗАЦИЯ ЭКРАНА ---
+    // 2. Инициализация экрана
     {
         let mut writer_guard = writer::WRITER.lock();
         *writer_guard = Some(writer::FrameBufferWriter::new(buffer, pitch, width, height, bpp));
     }
     
-    // Очищаем экран синим цветом (используя наш новый writer, это проще)
-    // Можно оставить старый цикл, но writer.clear_screen() удобнее, 
-    // но он приватный, так что пока оставим ручную заливку или просто println.
-    
-    // Рисуем фон (как и раньше)
+    // Очистка экрана
     for y in 0..height {
         for x in 0..width {
             let pixel_offset = y * pitch + x * ((bpp as u64) / 8);
@@ -38,30 +41,38 @@ pub fn init(buffer: *mut u8, pitch: u64, width: u64, height: u64, bpp: u16) {
         }
     }
     
-    // ТЕПЕРЬ МОЖНО ПИСАТЬ НА ЭКРАН!
-    // Используем макрос println! из модуля writer (он экспортируется глобально)
-    crate::println!("RizOS Kernel v0.1");
-    crate::println!("Display: {}x{}", width, height);
-    
+    println!("RizOS Kernel v0.1");
+    println!("Display: {}x{}", width, height);
     serial_println!("Graphics initialized.");
     
+    // --- ИСПРАВЛЕНИЕ: ПОРЯДОК ИНИЦИАЛИЗАЦИИ ---
+    
+    // 3. СНАЧАЛА GDT (Фундамент)
+    // Мы должны настроить сегменты и TSS до того, как создадим IDT.
+    serial_println!("Initializing GDT...");
+    gdt::init();
+    serial_println!("GDT Initialized.");
+
+    // 4. ПОТОМ IDT (Прерывания)
+    // Теперь IDT захватит правильные сегменты из нашей GDT.
     serial_println!("Initializing IDT...");
     interrupts::init_idt();
     serial_println!("IDT Initialized.");
 
-    crate::println!("\nType 'help' for commands.");
-    crate::print!("> "); // Приглашение
+    // ------------------------------------------
+
+    println!("\nShell ready.");
+    print!("> ");
 }
 
 pub fn print_memory_map(mmap_request: &MemoryMapRequest) {
-    // Теперь мы можем печатать карту памяти НА ЭКРАН!
-    crate::println!("--- Memory Map ---"); 
+    println!("--- Memory Map ---");
     
     if let Some(response) = mmap_request.get_response() {
         for entry in response.entries() {
-             if entry.entry_type == limine::memory_map::EntryType::USABLE {
-                crate::println!("RAM: {:#x}, Size: {} KB", entry.base, entry.length / 1024);
-             }
+            if entry.entry_type == limine::memory_map::EntryType::USABLE {
+                println!("RAM: {:#x}, Size: {} KB", entry.base, entry.length / 1024);
+            }
         }
     }
 }
