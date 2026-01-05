@@ -44,7 +44,7 @@ Focuses on Async/Await multitasking, UEFI booting, and Hardware Virtualization (
 ### 🚧 Phase 2: Hypervisor (In Progress)
 The main goal is to run Linux as a Guest VM.
 - [x] **VMX Detection:** CPUID feature check.
-- [ ] **VMX Enable:** Executing `vmxon` instruction.
+- [x] **VMX Enable:** Executing `vmxon` instruction.
 - [ ] **VMCS Setup:** Configuring Virtual Machine Control Structure.
 - [ ] **Guest State:** Setting up guest registers and segments.
 - [ ] **VM Loop:** `vmlaunch` / `vmresume` implementation.
