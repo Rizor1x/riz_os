@@ -96,9 +96,24 @@ fn execute_command(command: &str) {
         "cpu" => {
             use raw_cpuid::CpuId;
             let cpuid = CpuId::new();
-            if let Some(v) = cpuid.get_vendor_info() { println!("Vendor: {}", v.as_str()); }
+            
+             // 1. Производитель (Vendor)
+            if let Some(v) = cpuid.get_vendor_info() { 
+                println!("Vendor: {}", v.as_str()); 
+            }
+            
+             // 2. Название модели (Brand String) - тут обычно есть и ГГц
+            if let Some(brand) = cpuid.get_processor_brand_string() {
+                println!("Model: {}", brand.as_str().trim());
+            }
+            
+             // 3. Проверка VMX
             if let Some(f) = cpuid.get_feature_info() {
-                if f.has_vmx() { println!("[+] VMX Supported!"); } else { println!("[-] VMX Not Supported"); }
+                if f.has_vmx() { 
+                    println!("[+] VMX Supported!"); 
+                } else { 
+                    println!("[-] VMX Not Supported"); 
+                }
             }
         },
         "vmxon" => {
@@ -112,47 +127,76 @@ fn execute_command(command: &str) {
                 }
                 println!("[+] Registers & MSRs configured.");
 
-                // 2. Выделяем память (Виртуальный адрес в Куче)
+                // 2. Выделяем память VMXON
                 let layout = alloc::alloc::Layout::from_size_align(4096, 4096).unwrap();
                 let vmxon_ptr = alloc::alloc::alloc(layout);
-                if vmxon_ptr.is_null() {
-                    println!("[-] Allocation failed");
-                    return;
-                }
+                if vmxon_ptr.is_null() { println!("[-] Alloc failed"); return; }
                 core::ptr::write_bytes(vmxon_ptr, 0, 4096);
                 
-                // 3. Пишем Revision ID
                 use x86_64::registers::model_specific::Msr;
                 let revision_id = Msr::new(0x480).read() as u32;
                 *(vmxon_ptr as *mut u32) = revision_id;
                 
                 println!("[+] VMXON Region Virt: {:p} (ID: 0x{:x})", vmxon_ptr, revision_id);
 
-                // 4. ПРАВИЛЬНЫЙ ПЕРЕВОД АДРЕСА
                 let hhdm = HHDM_REQUEST.get_response().unwrap().offset();
                 
-                // Используем нашу новую функцию translate_addr
+                // Переменная для флагов (объявляем один раз как mutable)
+                let mut rflags: u64;
+
+                // 3. VMXON
                 match kernel_core::memory::translate_addr(vmxon_ptr as u64, hhdm) {
-                    Some(phys_addr) => {
-                        println!("[+] VMXON Region Phys: {:#x}", phys_addr);
-                        
-                        let rflags: u64;
+                    Some(phys) => {
+                        println!("[+] VMXON Region Phys: {:#x}", phys);
                         core::arch::asm!(
-                            "vmxon [{0}]",
-                            "pushf",
-                            "pop {1}",
-                            in(reg) &phys_addr, // Передаем ссылку на u64, где лежит адрес
-                            out(reg) rflags,
+                            "vmxon [{0}]", "pushf", "pop {1}",
+                            in(reg) &phys, out(reg) rflags,
                             options(nostack, preserves_flags)
                         );
-
                         if (rflags & 1) != 0 || (rflags & (1 << 6)) != 0 {
-                            println!("[-] VMXON Failed! RFLAGS: {:#x}", rflags);
+                            println!("[-] VMXON Failed!"); return;
+                        }
+                        println!("[!!!] SUCCESS: WE ARE IN VMX ROOT OPERATION!");
+                    },
+                    None => { println!("[-] Phys translation failed"); return; }
+                }
+
+                // 4. VMCS Setup
+                println!("\nSetting up VMCS...");
+                let vmcs_ptr = alloc::alloc::alloc(layout);
+                if vmcs_ptr.is_null() { println!("[-] VMCS Alloc failed"); return; }
+                core::ptr::write_bytes(vmcs_ptr, 0, 4096);
+                *(vmcs_ptr as *mut u32) = revision_id; // Тот же ID
+
+                match kernel_core::memory::translate_addr(vmcs_ptr as u64, hhdm) {
+                    Some(vmcs_phys) => {
+                        println!("[+] VMCS Region Phys: {:#x}", vmcs_phys);
+                        
+                        // VMCLEAR
+                        core::arch::asm!(
+                            "vmclear [{0}]", "pushf", "pop {1}",
+                            in(reg) &vmcs_phys, out(reg) rflags, // Пишем в тот же rflags
+                            options(nostack, preserves_flags)
+                        );
+                        if (rflags & 1) != 0 || (rflags & (1 << 6)) != 0 {
+                            println!("[-] VMCLEAR Failed!"); return;
+                        }
+                        println!("[+] VMCLEAR Successful.");
+
+                        // VMPTRLD
+                        core::arch::asm!(
+                            "vmptrld [{0}]", "pushf", "pop {1}",
+                            in(reg) &vmcs_phys, out(reg) rflags,
+                            options(nostack, preserves_flags)
+                        );
+                        if (rflags & 1) != 0 || (rflags & (1 << 6)) != 0 {
+                            println!("[-] VMPTRLD Failed!"); 
                         } else {
-                            println!("[!!!] SUCCESS: WE ARE IN VMX ROOT OPERATION!");
+                            println!("[!!!] SUCCESS: VMCS LOADED & ACTIVE!");
+                            println!("      Ready to configure Guest State.");
                         }
                     },
-                    None => println!("[-] Failed to translate virtual address!"),
+                    None => println!("[-] VMCS Phys translation failed"),
                 }
             }
         },
