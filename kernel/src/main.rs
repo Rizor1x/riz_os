@@ -78,6 +78,7 @@ fn execute_command(command: &str) {
             println!("  cat   - Read file");
             println!("  clear - Clear screen");
             println!("  cpu   - CPU Info");
+            println!("  vmxon   - VM Hypervisor Info");
         },
         "ver" => println!("\nRizOS v0.1.0"),
         "ls" => {
@@ -98,6 +99,61 @@ fn execute_command(command: &str) {
             if let Some(v) = cpuid.get_vendor_info() { println!("Vendor: {}", v.as_str()); }
             if let Some(f) = cpuid.get_feature_info() {
                 if f.has_vmx() { println!("[+] VMX Supported!"); } else { println!("[-] VMX Not Supported"); }
+            }
+        },
+        "vmxon" => {
+            unsafe {
+                println!("\nAttempting to enter VMX Root Operation...");
+                
+                // 1. Настройка регистров
+                if let Err(e) = kernel_core::hypervisor::enable_vmx() {
+                    println!("[-] Setup failed: {}", e);
+                    return;
+                }
+                println!("[+] Registers & MSRs configured.");
+
+                // 2. Выделяем память (Виртуальный адрес в Куче)
+                let layout = alloc::alloc::Layout::from_size_align(4096, 4096).unwrap();
+                let vmxon_ptr = alloc::alloc::alloc(layout);
+                if vmxon_ptr.is_null() {
+                    println!("[-] Allocation failed");
+                    return;
+                }
+                core::ptr::write_bytes(vmxon_ptr, 0, 4096);
+                
+                // 3. Пишем Revision ID
+                use x86_64::registers::model_specific::Msr;
+                let revision_id = Msr::new(0x480).read() as u32;
+                *(vmxon_ptr as *mut u32) = revision_id;
+                
+                println!("[+] VMXON Region Virt: {:p} (ID: 0x{:x})", vmxon_ptr, revision_id);
+
+                // 4. ПРАВИЛЬНЫЙ ПЕРЕВОД АДРЕСА
+                let hhdm = HHDM_REQUEST.get_response().unwrap().offset();
+                
+                // Используем нашу новую функцию translate_addr
+                match kernel_core::memory::translate_addr(vmxon_ptr as u64, hhdm) {
+                    Some(phys_addr) => {
+                        println!("[+] VMXON Region Phys: {:#x}", phys_addr);
+                        
+                        let rflags: u64;
+                        core::arch::asm!(
+                            "vmxon [{0}]",
+                            "pushf",
+                            "pop {1}",
+                            in(reg) &phys_addr, // Передаем ссылку на u64, где лежит адрес
+                            out(reg) rflags,
+                            options(nostack, preserves_flags)
+                        );
+
+                        if (rflags & 1) != 0 || (rflags & (1 << 6)) != 0 {
+                            println!("[-] VMXON Failed! RFLAGS: {:#x}", rflags);
+                        } else {
+                            println!("[!!!] SUCCESS: WE ARE IN VMX ROOT OPERATION!");
+                        }
+                    },
+                    None => println!("[-] Failed to translate virtual address!"),
+                }
             }
         },
         "" => {},

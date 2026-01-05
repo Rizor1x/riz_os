@@ -16,7 +16,8 @@ pub mod allocator;
 pub mod interrupts;
 pub mod task;
 pub mod fs;
-pub mod gdt; // Модуль GDT
+pub mod gdt;
+pub mod hypervisor;
 
 use limine::request::MemoryMapRequest;
 

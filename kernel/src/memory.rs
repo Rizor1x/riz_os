@@ -1,13 +1,14 @@
 use x86_64::{
     structures::paging::{
         PageTable, OffsetPageTable, FrameAllocator, 
-        PhysFrame, Size4KiB, 
+        PhysFrame, Size4KiB, Translate
         // Page удалили, так как он не использовался и вызывал warning
     },
-    VirtAddr, PhysAddr,
+    VirtAddr, PhysAddr
 };
 // PhysFrameRange переехал сюда в x86_64 v0.15
 use limine::memory_map::EntryType;
+
 
 // --- Исправленный Аллокатор ---
 
@@ -45,6 +46,22 @@ unsafe impl FrameAllocator<Size4KiB> for BootInfoFrameAllocator {
         let frame = self.usable_frames().nth(self.next);
         self.next += 1;
         frame
+    }
+}
+
+pub fn translate_addr(addr: u64, physical_memory_offset: u64) -> Option<u64> {
+    let virt = VirtAddr::new(addr);
+    let offset = VirtAddr::new(physical_memory_offset);
+    
+    unsafe {
+        // 1. Получаем активную таблицу L4
+        let level_4_table = active_level_4_table(offset);
+        
+        // 2. Создаем маппер
+        let mapper = OffsetPageTable::new(level_4_table, offset);
+        
+        // 3. Спрашиваем физический адрес
+        mapper.translate_addr(virt).map(|phys| phys.as_u64())
     }
 }
 
