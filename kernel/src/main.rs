@@ -5,12 +5,14 @@ extern crate alloc;
 
 use core::panic::PanicInfo;
 use limine::BaseRevision;
-use limine::request::{FramebufferRequest, MemoryMapRequest, HhdmRequest};
+use kernel_core::fs::TarFileSystem; // Импорт FS
+use limine::request::{FramebufferRequest, MemoryMapRequest, HhdmRequest, ModuleRequest}; // + ModuleRequest
 
 use kernel_core::{init, hcf, serial_println, print, println};
 use kernel_core::memory::BootInfoFrameAllocator;
 use kernel_core::task::{Task, simple_executor::SimpleExecutor};
 use kernel_core::task::keyboard::ScancodeStream;
+
 
 use x86_64::VirtAddr;
 use alloc::{string::String};
@@ -33,29 +35,60 @@ pub static MEMORY_MAP_REQUEST: MemoryMapRequest = MemoryMapRequest::new();
 #[link_section = ".requests"]
 pub static HHDM_REQUEST: HhdmRequest = HhdmRequest::new();
 
+#[used]
+#[link_section = ".requests"]
+pub static MODULE_REQUEST: ModuleRequest = ModuleRequest::new();
+
+use spin::Mutex;
+use lazy_static::lazy_static;
+
+lazy_static! {
+    static ref FILESYSTEM: Mutex<Option<TarFileSystem>> = Mutex::new(None);
+}
+
 fn execute_command(command: &str) {
-    let command = command.trim(); // Убираем пробелы по краям
+    let command = command.trim();
+    
+    // Проверяем команды с аргументами
+    if command.starts_with("cat ") {
+        let filename = &command[4..];
+        if let Some(fs) = &*FILESYSTEM.lock() {
+            if let Some(data) = fs.read_file(filename) {
+                // Пытаемся превратить байты в текст и напечатать
+                if let Ok(text) = core::str::from_utf8(data) {
+                    println!("\nContent of {}:\n----------------\n{}\n----------------", filename, text);
+                } else {
+                    println!("\nFile contains binary data.");
+                }
+            } else {
+                println!("\nFile not found: {}", filename);
+            }
+        } else {
+            println!("\nFilesystem not initialized!");
+        }
+        return;
+    }
+
     match command {
         "help" => {
             println!("\nRizOS Help:");
-            println!("  help  - Show this message");
-            println!("  ver   - Show OS version");
-            println!("  echo  - Print text back");
-            println!("  clear - Clear screen");
+            println!("  ls    - List files");
+            println!("  cat   - Print file content (usage: cat name)");
+            // ... старые команды ...
         },
-        "ver" => println!("\nRizOS v0.1.0 (Async Edition)"),
-        "clear" => println!("\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n"),
-        "" => {},
-        cmd => {
-            // Исправленная логика для echo
-            if cmd.starts_with("echo ") {
-                println!("\n{}", &cmd[5..]);
-            } else if cmd == "echo" {
-                println!("\n(Empty echo)");
+        "ls" => {
+            println!();
+            if let Some(fs) = &*FILESYSTEM.lock() {
+                println!("Files on disk.tar:");
+                for (name, size) in fs.list_files() {
+                    println!(" - {} ({} bytes)", name, size);
+                }
             } else {
-                println!("\nUnknown command: '{}'", cmd);
+                println!("Filesystem not initialized!");
             }
-        }
+        },
+        // ... старые команды (ver, clear) ...
+        _ => println!("\nUnknown command: '{}'", command),
     }
 }
 
@@ -125,6 +158,27 @@ pub extern "C" fn _start() -> ! {
     // 3. Железо
     serial_println!("Initializing Keyboard Controller...");
     kernel_core::interrupts::enable_keyboard(); 
+
+    // --- ИНИЦИАЛИЗАЦИЯ ФАЙЛОВОЙ СИСТЕМЫ ---
+    serial_println!("Loading Filesystem...");
+    if let Some(response) = MODULE_REQUEST.get_response() {
+        if let Some(modules) = response.modules().get(0) { // Берем первый модуль (disk.tar)
+             let addr = modules.addr();
+             let size = modules.size();
+             
+             serial_println!("Found module at {:#x}, size: {}", addr as u64, size);
+             
+             // Сохраняем FS в глобальную переменную
+             unsafe {
+                 *FILESYSTEM.lock() = Some(TarFileSystem::new(addr, size));
+             }
+             serial_println!("Filesystem mounted!");
+        } else {
+            serial_println!("Warning: No modules loaded by Limine.");
+        }
+    } else {
+        serial_println!("Warning: Module request failed.");
+    }
 
     // 4. Многозадачность
     let mut executor = SimpleExecutor::new();

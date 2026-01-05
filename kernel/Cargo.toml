@@ -24,9 +24,12 @@ futures-util = { version = "0.3.30", default-features = false, features = ["allo
 name = "kernel_core" # Назовем либу kernel_core
 path = "src/lib.rs"
 test = false
+doctest = false
+bench = false
 
 [[bin]]
 name = "kernel"
 path = "src/main.rs"
 test = false
+doctest = false
 bench = false

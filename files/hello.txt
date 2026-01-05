@@ -1,0 +1,3 @@
+Hello from the File System!
+This text is read from a TAR archive.
+RizOS is cool.

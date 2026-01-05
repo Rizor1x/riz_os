@@ -12,7 +12,17 @@ rm -rf iso_root
 mkdir -p iso_root/boot/limine
 mkdir -p iso_root/EFI/BOOT
 
-# Копируем ядро в /boot/kernel
+# --- НОВАЯ ЧАСТЬ: СОЗДАНИЕ ДИСКА ---
+echo "Packing files..."
+# Создаем архив disk.tar из содержимого папки files/
+# Флаг --format=ustar важен для совместимости!
+tar -cvf disk.tar -C files/ --format=ustar .
+
+# Копируем архив в ISO
+cp disk.tar iso_root/boot/disk.tar
+# -----------------------------------
+
+# Копируем ядро
 cp target/x86_64-unknown-none/release/kernel iso_root/boot/
 
 # Копируем НОВЫЙ конфиг в /boot/limine/limine.conf

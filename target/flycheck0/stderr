@@ -1,52 +1,9 @@
-   0.020078212s  INFO prepare_target{force=false package_id=kernel v0.1.0 (/home/rizor1x/Documents/riz_os/kernel) target="kernel_core"}: cargo::core::compiler::fingerprint: fingerprint error for kernel v0.1.0 (/home/rizor1x/Documents/riz_os/kernel)/Check { test: true }/TargetInner { tested: false, ..: lib_target("kernel_core", ["lib"], "/home/rizor1x/Documents/riz_os/kernel/src/lib.rs", Edition2021) }
-   0.020104651s  INFO prepare_target{force=false package_id=kernel v0.1.0 (/home/rizor1x/Documents/riz_os/kernel) target="kernel_core"}: cargo::core::compiler::fingerprint:     err: failed to read `/home/rizor1x/Documents/riz_os/target/x86_64-unknown-none/debug/.fingerprint/kernel-9fca51c1ab6982d3/test-lib-kernel_core`
-
-Caused by:
-    No such file or directory (os error 2)
-
-Stack backtrace:
-   0: cargo_util::paths::read_bytes
-   1: cargo_util::paths::read
-   2: cargo::core::compiler::fingerprint::_compare_old_fingerprint
-   3: cargo::core::compiler::fingerprint::prepare_target
-   4: cargo::core::compiler::compile
-   5: <cargo::core::compiler::build_runner::BuildRunner>::compile
-   6: cargo::ops::cargo_compile::compile_ws
-   7: cargo::ops::cargo_compile::compile_with_exec
-   8: cargo::ops::cargo_compile::compile
-   9: cargo::commands::check::exec
-  10: <cargo::cli::Exec>::exec
-  11: cargo::main
-  12: std::sys::backtrace::__rust_begin_short_backtrace::<fn(), ()>
-  13: std::rt::lang_start::<()>::{closure#0}
-  14: <&dyn core::ops::function::Fn<(), Output = i32> + core::panic::unwind_safe::RefUnwindSafe + core::marker::Sync as core::ops::function::FnOnce<()>>::call_once
-             at /rustc/7ecabfaaf1a58172cdd71f7661cf6589ddf7928f/library/core/src/ops/function.rs:287:21
-  15: std::panicking::catch_unwind::do_call::<&dyn core::ops::function::Fn<(), Output = i32> + core::panic::unwind_safe::RefUnwindSafe + core::marker::Sync, i32>
-             at /rustc/7ecabfaaf1a58172cdd71f7661cf6589ddf7928f/library/std/src/panicking.rs:581:40
-  16: std::panicking::catch_unwind::<i32, &dyn core::ops::function::Fn<(), Output = i32> + core::panic::unwind_safe::RefUnwindSafe + core::marker::Sync>
-             at /rustc/7ecabfaaf1a58172cdd71f7661cf6589ddf7928f/library/std/src/panicking.rs:544:19
-  17: std::panic::catch_unwind::<&dyn core::ops::function::Fn<(), Output = i32> + core::panic::unwind_safe::RefUnwindSafe + core::marker::Sync, i32>
-             at /rustc/7ecabfaaf1a58172cdd71f7661cf6589ddf7928f/library/std/src/panic.rs:359:14
-  18: std::rt::lang_start_internal::{closure#0}
-             at /rustc/7ecabfaaf1a58172cdd71f7661cf6589ddf7928f/library/std/src/rt.rs:175:24
-  19: std::panicking::catch_unwind::do_call::<std::rt::lang_start_internal::{closure#0}, isize>
-             at /rustc/7ecabfaaf1a58172cdd71f7661cf6589ddf7928f/library/std/src/panicking.rs:581:40
-  20: std::panicking::catch_unwind::<isize, std::rt::lang_start_internal::{closure#0}>
-             at /rustc/7ecabfaaf1a58172cdd71f7661cf6589ddf7928f/library/std/src/panicking.rs:544:19
-  21: std::panic::catch_unwind::<std::rt::lang_start_internal::{closure#0}, isize>
-             at /rustc/7ecabfaaf1a58172cdd71f7661cf6589ddf7928f/library/std/src/panic.rs:359:14
-  22: std::rt::lang_start_internal
-             at /rustc/7ecabfaaf1a58172cdd71f7661cf6589ddf7928f/library/std/src/rt.rs:171:5
-  23: main
-  24: __libc_start_call_main
-  25: __libc_start_main_alias_1
-  26: <unknown>
-   0.027725195s  INFO prepare_target{force=false package_id=kernel v0.1.0 (/home/rizor1x/Documents/riz_os/kernel) target="kernel_core"}: cargo::core::compiler::fingerprint: stale: changed "/home/rizor1x/Documents/riz_os/kernel/src/interrupts.rs"
-   0.027734234s  INFO prepare_target{force=false package_id=kernel v0.1.0 (/home/rizor1x/Documents/riz_os/kernel) target="kernel_core"}: cargo::core::compiler::fingerprint:           (vs) "/home/rizor1x/Documents/riz_os/target/x86_64-unknown-none/debug/.fingerprint/kernel-4717c0f4c8acea76/dep-lib-kernel_core"
-   0.027736997s  INFO prepare_target{force=false package_id=kernel v0.1.0 (/home/rizor1x/Documents/riz_os/kernel) target="kernel_core"}: cargo::core::compiler::fingerprint:                FileTime { seconds: 1767606374, nanos: 583165522 } < FileTime { seconds: 1767606376, nanos: 334871360 }
-   0.027779790s  INFO prepare_target{force=false package_id=kernel v0.1.0 (/home/rizor1x/Documents/riz_os/kernel) target="kernel_core"}: cargo::core::compiler::fingerprint: fingerprint dirty for kernel v0.1.0 (/home/rizor1x/Documents/riz_os/kernel)/Check { test: false }/TargetInner { tested: false, ..: lib_target("kernel_core", ["lib"], "/home/rizor1x/Documents/riz_os/kernel/src/lib.rs", Edition2021) }
-   0.027789366s  INFO prepare_target{force=false package_id=kernel v0.1.0 (/home/rizor1x/Documents/riz_os/kernel) target="kernel_core"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleItem(ChangedFile { reference: "/home/rizor1x/Documents/riz_os/target/x86_64-unknown-none/debug/.fingerprint/kernel-4717c0f4c8acea76/dep-lib-kernel_core", reference_mtime: FileTime { seconds: 1767606374, nanos: 583165522 }, stale: "/home/rizor1x/Documents/riz_os/kernel/src/interrupts.rs", stale_mtime: FileTime { seconds: 1767606376, nanos: 334871360 } }))
-   0.028845703s  INFO prepare_target{force=false package_id=kernel v0.1.0 (/home/rizor1x/Documents/riz_os/kernel) target="kernel"}: cargo::core::compiler::fingerprint: fingerprint dirty for kernel v0.1.0 (/home/rizor1x/Documents/riz_os/kernel)/Check { test: false }/TargetInner { name: "kernel", tested: false, benched: false, doc: true, ..: with_path("/home/rizor1x/Documents/riz_os/kernel/src/main.rs", Edition2021) }
-   0.028857933s  INFO prepare_target{force=false package_id=kernel v0.1.0 (/home/rizor1x/Documents/riz_os/kernel) target="kernel"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "kernel_core" })
+   0.025030432s  INFO prepare_target{force=false package_id=kernel v0.1.0 (/home/rizor1x/Documents/riz_os/kernel) target="kernel_core"}: cargo::core::compiler::fingerprint: stale: changed "/home/rizor1x/Documents/riz_os/kernel/src/lib.rs"
+   0.025039851s  INFO prepare_target{force=false package_id=kernel v0.1.0 (/home/rizor1x/Documents/riz_os/kernel) target="kernel_core"}: cargo::core::compiler::fingerprint:           (vs) "/home/rizor1x/Documents/riz_os/target/x86_64-unknown-none/debug/.fingerprint/kernel-4717c0f4c8acea76/dep-lib-kernel_core"
+   0.025043027s  INFO prepare_target{force=false package_id=kernel v0.1.0 (/home/rizor1x/Documents/riz_os/kernel) target="kernel_core"}: cargo::core::compiler::fingerprint:                FileTime { seconds: 1767608038, nanos: 136439804 } < FileTime { seconds: 1767608404, nanos: 616093897 }
+   0.025092024s  INFO prepare_target{force=false package_id=kernel v0.1.0 (/home/rizor1x/Documents/riz_os/kernel) target="kernel_core"}: cargo::core::compiler::fingerprint: fingerprint dirty for kernel v0.1.0 (/home/rizor1x/Documents/riz_os/kernel)/Check { test: false }/TargetInner { tested: false, benched: false, doctest: false, ..: lib_target("kernel_core", ["lib"], "/home/rizor1x/Documents/riz_os/kernel/src/lib.rs", Edition2021) }
+   0.025100815s  INFO prepare_target{force=false package_id=kernel v0.1.0 (/home/rizor1x/Documents/riz_os/kernel) target="kernel_core"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleItem(ChangedFile { reference: "/home/rizor1x/Documents/riz_os/target/x86_64-unknown-none/debug/.fingerprint/kernel-4717c0f4c8acea76/dep-lib-kernel_core", reference_mtime: FileTime { seconds: 1767608038, nanos: 136439804 }, stale: "/home/rizor1x/Documents/riz_os/kernel/src/lib.rs", stale_mtime: FileTime { seconds: 1767608404, nanos: 616093897 } }))
+   0.026694431s  INFO prepare_target{force=false package_id=kernel v0.1.0 (/home/rizor1x/Documents/riz_os/kernel) target="kernel"}: cargo::core::compiler::fingerprint: fingerprint dirty for kernel v0.1.0 (/home/rizor1x/Documents/riz_os/kernel)/Check { test: false }/TargetInner { name: "kernel", tested: false, benched: false, doc: true, ..: with_path("/home/rizor1x/Documents/riz_os/kernel/src/main.rs", Edition2021) }
+   0.026710718s  INFO prepare_target{force=false package_id=kernel v0.1.0 (/home/rizor1x/Documents/riz_os/kernel) target="kernel"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "kernel_core" })
     Checking kernel v0.1.0 (/home/rizor1x/Documents/riz_os/kernel)
-error: could not compile `kernel` (lib test) due to 2 previous errors
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.09s

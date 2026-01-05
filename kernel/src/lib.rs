@@ -10,6 +10,7 @@ pub mod memory;
 pub mod allocator;
 pub mod interrupts;
 pub mod task;
+pub mod fs;
 
 use limine::request::MemoryMapRequest;
 
