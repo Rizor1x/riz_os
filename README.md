@@ -45,7 +45,7 @@ Focuses on Async/Await multitasking, UEFI booting, and Hardware Virtualization (
 The main goal is to run Linux as a Guest VM.
 - [x] **VMX Detection:** CPUID feature check.
 - [x] **VMX Enable:** Executing `vmxon` instruction.
-- [ ] **VMCS Setup:** Configuring Virtual Machine Control Structure.
+- [x] **VMCS Setup:** Configuring Virtual Machine Control Structure.
 - [ ] **Guest State:** Setting up guest registers and segments.
 - [ ] **VM Loop:** `vmlaunch` / `vmresume` implementation.
 - [ ] **EPT:** Extended Page Tables (Memory virtualization).
