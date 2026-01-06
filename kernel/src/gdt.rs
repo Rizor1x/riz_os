@@ -53,3 +53,10 @@ pub fn init() {
         load_tss(GDT.1.tss_selector);
     }
 }
+
+pub fn get_tss_address() -> u64 {
+    use x86_64::VirtAddr;
+    // Разыменовываем lazy_static, чтобы получить адрес самой структуры
+    let ptr = &*TSS as *const _ as u64;
+    ptr
+}

@@ -211,6 +211,108 @@ fn execute_command(command: &str) {
                                     Err(e) => println!("[-] VMREAD failed: {}", e),
                                 }
                             }
+
+                            println!("Configuring Host State...");
+                            match kernel_core::hypervisor::vmcs::setup_host_state() {
+                                Ok(_) => println!("[+] Host State Configured Successfully"),
+                                Err(e) => println!("[-] Host State Failed: {}", e),
+                            }
+
+                            // --- НОВОЕ: Подготовка EPT (Extended Page Tables) ---
+                            // Без этого Unrestricted Guest не работает
+                            let ept_ptr = alloc::alloc::alloc(layout);
+                            core::ptr::write_bytes(ept_ptr, 0, 4096);
+                            
+                            let ept_phys = match kernel_core::memory::translate_addr(ept_ptr as u64, hhdm) {
+                                Some(p) => p,
+                                None => { println!("[-] EPT Phys failed"); return; }
+                            };
+                            
+                            // Формат EPTP:
+                            // Биты 2:0 = Memory Type (6 = Write Back)
+                            // Биты 5:3 = Page Walk Length - 1 (3 = 4 уровня)
+                            // Итого флаги: 0x1E (bin: 011 110)
+                            let eptp_value = ept_phys | 0x1E;
+                            
+                            // Записываем EPTP в VMCS (поле 0x201A)
+                            // Используем константу напрямую или добавь use kernel_core::hypervisor::vmcs::fields::EPT_POINTER;
+                            {
+                                if let Err(e) = kernel_core::hypervisor::vmcs::vmwrite(0x201A, eptp_value) {
+                                    println!("[-] VMWRITE EPT failed: {}", e);
+                                    return;
+                                }
+                            }
+                            println!("[+] EPT Pointer configured: {:#x}", eptp_value);
+
+                            // 1. Настраиваем правила (Controls) - 64 BIT!
+                            if let Err(e) = kernel_core::hypervisor::vmcs::setup_vm_controls_64bit() {
+                                println!("[-] VM Controls Failed: {}", e);
+                                return;
+                            }
+                            println!("[+] VM Controls Configured (64-bit).");
+
+                            // 2. Готовим память (Код)
+                            let layout = alloc::alloc::Layout::from_size_align(4096, 4096).unwrap();
+                            let guest_mem = alloc::alloc::alloc(layout);
+                            core::ptr::write_bytes(guest_mem, 0, 4096);
+                            
+                            // JMP $ (Бесконечный цикл): EB FE
+                            *(guest_mem as *mut u16) = 0xFEEB; 
+                            
+                            // ВНИМАНИЕ: Для 64-битного гостя с общим CR3 мы передаем ВИРТУАЛЬНЫЙ адрес!
+                            // (Потому что пейджинг включен, и гость видит ту же память, что и мы)
+                            let guest_entry = guest_mem as u64;
+                            
+                            println!("[+] Guest Entry at Virt: {:#x}", guest_entry);
+
+                            // 3. Настраиваем Гостя (64 BIT!)
+                            if let Err(e) = kernel_core::hypervisor::vmcs::setup_guest_state_64bit(guest_entry) {
+                                println!("[-] Guest State Failed: {}", e);
+                                return;
+                            }
+                            println!("[+] Guest State Configured (Mirror).");
+
+                            use kernel_core::hypervisor::vmcs::fields::{HOST_RIP, HOST_RSP};
+                        
+                            // 1. HOST_RIP: Адрес нашей функции-обработчика
+                            let rip = vm_exit_handler as *const () as u64;
+                            if let Err(e) = kernel_core::hypervisor::vmcs::vmwrite(HOST_RIP, rip) {
+                                println!("[-] Failed to write HOST_RIP: {}", e);
+                                return;
+                            }
+
+                            // 2. HOST_RSP: Текущий стек ядра
+                            // Нам нужно узнать, где сейчас стек. Прочитаем регистр RSP.
+                            let rsp: u64;
+                            core::arch::asm!("mov {}, rsp", out(reg) rsp);
+                            
+                            if let Err(e) = kernel_core::hypervisor::vmcs::vmwrite(HOST_RSP, rsp) {
+                                println!("[-] Failed to write HOST_RSP: {}", e);
+                                return;
+                            }
+                            
+                            println!("[+] Host Handler set at {:#x}", rip);
+
+                            // 4. VMLAUNCH !!!
+                            println!("\n[!!!] ATTEMPTING VMLAUNCH...");
+                            
+                            let rflags: u64;
+                            core::arch::asm!(
+                                "vmlaunch",
+                                "pushf",
+                                "pop {0}",
+                                out(reg) rflags,
+                                options(nostack, preserves_flags)
+                            );
+
+                            // Если мы дошли сюда, значит vmlaunch НЕ удался
+                            println!("[-] VMLAUNCH Failed! RFLAGS: {:#x}", rflags);
+                            
+                            // Читаем код ошибки
+                            match kernel_core::hypervisor::vmcs::vmread(0x4400) { // VM_INSTRUCTION_ERROR
+                                Ok(err) => println!("[-] VM Instruction Error: {}", err),
+                                Err(_) => println!("[-] Could not read error code"),
+                            }
                         }
                     },
                     None => println!("[-] VMCS Phys translation failed"),
@@ -387,6 +489,27 @@ pub extern "C" fn _start() -> ! {
     executor.run();
 
     loop { x86_64::instructions::hlt(); }
+}
+
+#[no_mangle]
+pub extern "C" fn vm_exit_handler() -> ! {
+    // Мы выжили! Мы вернулись из матрицы!
+    serial_println!("\n[!!!] VMEXIT SUCCESSFUL! Welcome back to Host.");
+    
+    // Тут мы должны прочитать причину выхода (Exit Reason), 
+    // но пока просто зависнем от радости.
+    
+    // Читаем причину выхода (VM_EXIT_REASON = 0x4402)
+    unsafe {
+        match kernel_core::hypervisor::vmcs::vmread(0x4402) {
+            Ok(reason) => serial_println!("Exit Reason: {:#x}", reason),
+            Err(_) => serial_println!("Could not read exit reason"),
+        }
+    }
+
+    loop {
+        x86_64::instructions::hlt();
+    }
 }
 
 #[panic_handler]
