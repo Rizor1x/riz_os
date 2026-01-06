@@ -46,8 +46,8 @@ The main goal is to run Linux as a Guest VM.
 - [x] **VMX Detection:** CPUID feature check.
 - [x] **VMX Enable:** Executing `vmxon` instruction.
 - [x] **VMCS Setup:** Configuring Virtual Machine Control Structure.
-- [ ] **Guest State:** Setting up guest registers and segments.
-- [ ] **VM Loop:** `vmlaunch` / `vmresume` implementation.
+- [x] **Guest State:** Setting up guest registers and segments.
+- [x] **VM Loop:** `vmlaunch` / `vmresume` implementation.
 - [ ] **EPT:** Extended Page Tables (Memory virtualization).
 
 ### 🔮 Phase 3: User Mode & Security
