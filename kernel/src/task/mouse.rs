@@ -8,15 +8,6 @@ use futures_util::task::AtomicWaker;
 static MOUSE_QUEUE: OnceCell<ArrayQueue<u8>> = OnceCell::uninit();
 static WAKER: AtomicWaker = AtomicWaker::new();
 
-pub(crate) fn add_mouse_packet(packet: u8) {
-    if let Ok(queue) = MOUSE_QUEUE.try_get() {
-        if let Err(_) = queue.push(packet) {
-            // Очередь полна, выкидываем старые данные
-        } else {
-            WAKER.wake();
-        }
-    }
-}
 
 pub struct MouseStream {
     _private: (),

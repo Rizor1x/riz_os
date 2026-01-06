@@ -19,21 +19,20 @@ impl SimpleExecutor {
     }
 
     // Главный цикл: крутим задачи, пока они есть
-    pub fn run(&mut self) {
-        while let Some(mut task) = self.task_queue.pop_front() {
-            // Создаем фиктивный Waker (будильник).
-            // Пока что он ничего не делает. Если задача уснет, мы просто снова её опросим.
-            // Это неэффективно (процессор будет греться), но для теста сойдет.
-            let waker = dummy_waker();
-            let mut context = Context::from_waker(&waker);
-            
-            match task.poll(&mut context) {
-                Poll::Ready(()) => {
-                    // Задача завершилась (сделала return). Отлично, забываем про неё.
-                }
-                Poll::Pending => {
-                    // Задача сказала "я жду". Кладем её обратно в конец очереди.
-                    self.task_queue.push_back(task);
+    pub fn run_ready_tasks(&mut self) {
+        // Проходим один круг по очереди задач
+        let count = self.task_queue.len();
+        for _ in 0..count {
+            if let Some(mut task) = self.task_queue.pop_front() {
+                let waker = dummy_waker();
+                let mut context = Context::from_waker(&waker);
+                
+                match task.poll(&mut context) {
+                    Poll::Ready(()) => { /* Задача выполнена */ }
+                    Poll::Pending => {
+                        // Задача ждет. Вернем её в хвост очереди
+                        self.task_queue.push_back(task);
+                    }
                 }
             }
         }

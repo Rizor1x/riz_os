@@ -13,7 +13,7 @@ static ALLOCATOR: LockedHeap = LockedHeap::empty();
 
 // Настройки кучи
 pub const HEAP_START: usize = 0x_4444_4444_0000; // Просто произвольный адрес, который точно свободен
-pub const HEAP_SIZE: usize = 100 * 1024; // 100 KiB для начала
+pub const HEAP_SIZE: usize = 32 * 1024 * 1024; // 
 
 pub fn init_heap(
     mapper: &mut impl Mapper<Size4KiB>,

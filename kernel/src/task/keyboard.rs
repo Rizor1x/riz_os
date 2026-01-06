@@ -11,20 +11,6 @@ static SCANCODE_QUEUE: OnceCell<ArrayQueue<u8>> = OnceCell::uninit();
 // Waker - штука, которая будет будить Executor, когда придет байт.
 static WAKER: AtomicWaker = AtomicWaker::new();
 
-/// Вызывается из ПРЕРЫВАНИЯ (interrupts.rs). Должна работать мгновенно.
-pub(crate) fn add_scancode(scancode: u8) {
-    if let Ok(queue) = SCANCODE_QUEUE.try_get() {
-        if let Err(_) = queue.push(scancode) {
-            // Очередь полна. Игнорируем ввод (или можно пищать динамиком)
-            crate::serial_println!("WARNING: Scancode queue full; dropping input");
-        } else {
-            // ГЛАВНЫЙ МОМЕНТ: Будим задачу, которая ждет этот скан-код!
-            WAKER.wake();
-        }
-    } else {
-        crate::serial_println!("WARNING: Scancode queue uninitialized");
-    }
-}
 
 pub struct ScancodeStream {
     _private: (), // Чтобы нельзя было создать структуру извне

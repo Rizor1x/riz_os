@@ -18,52 +18,38 @@ pub mod task;
 pub mod fs;
 pub mod gdt;
 pub mod hypervisor;
+pub mod shell;
+pub mod graphics;
+pub mod window;
+
+use core::sync::atomic::{AtomicU64};
 
 use limine::request::MemoryMapRequest;
+pub static HHDM_OFFSET: AtomicU64 = AtomicU64::new(0);
+
 
 pub fn init(buffer: *mut u8, pitch: u64, width: u64, height: u64, bpp: u16) {
-    // 1. Сначала Serial, чтобы работали логи
     serial::init();
     
-    // 2. Инициализация экрана
+    // Инициализация графического движка
     {
-        let mut writer_guard = writer::WRITER.lock();
-        *writer_guard = Some(writer::FrameBufferWriter::new(buffer, pitch, width, height, bpp));
+        let mut screen = graphics::SCREEN.lock();
+        *screen = Some(graphics::Screen::new(
+            buffer, 
+            width as usize, 
+            height as usize, 
+            pitch as usize
+        ));
     }
     
-    // Очистка экрана
-    for y in 0..height {
-        for x in 0..width {
-            let pixel_offset = y * pitch + x * ((bpp as u64) / 8);
-            unsafe {
-                let ptr = buffer.add(pixel_offset as usize) as *mut u32;
-                *ptr = 0x00000088; 
-            }
-        }
-    }
+    serial_println!("Graphics initialized (Double Buffering).");
     
-    println!("RizOS Kernel v0.1");
-    println!("Display: {}x{}", width, height);
-    serial_println!("Graphics initialized.");
-    
-    // --- ИСПРАВЛЕНИЕ: ПОРЯДОК ИНИЦИАЛИЗАЦИИ ---
-    
-    // 3. СНАЧАЛА GDT (Фундамент)
-    // Мы должны настроить сегменты и TSS до того, как создадим IDT.
+    // Остальное (IDT, GDT) оставляем...
     serial_println!("Initializing GDT...");
     gdt::init();
-    serial_println!("GDT Initialized.");
-
-    // 4. ПОТОМ IDT (Прерывания)
-    // Теперь IDT захватит правильные сегменты из нашей GDT.
     serial_println!("Initializing IDT...");
     interrupts::init_idt();
-    serial_println!("IDT Initialized.");
-
-    // ------------------------------------------
-
-    println!("\nShell ready.");
-    print!("> ");
+    crate::interrupts::init_input(); // Используем наш общий инит
 }
 
 pub fn print_memory_map(mmap_request: &MemoryMapRequest) {

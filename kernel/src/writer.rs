@@ -1,160 +1,143 @@
-use font8x8::{UnicodeFonts, BASIC_FONTS};
-use spin::Mutex;
 use core::fmt;
+use spin::Mutex;
+use lazy_static::lazy_static;
+use font8x8::{BASIC_FONTS, UnicodeFonts};
+use crate::graphics::SCREEN;
 
-pub static WRITER: Mutex<Option<FrameBufferWriter>> = Mutex::new(None);
+// Размеры консоли (в символах)
+const COLS: usize = 100;
+const ROWS: usize = 40;
 
-// Размер курсора
-const MOUSE_SIZE: usize = 10; 
-
-pub struct FrameBufferWriter {
-    buffer: *mut u8,
-    pitch: u64,
-    width: u64,
-    height: u64,
-    bpp: u16,
-    x_pos: u64,
-    y_pos: u64,
-    
-    // Для мыши: храним позицию и фон под курсором
-    mouse_x: usize,
-    mouse_y: usize,
-    mouse_bg_buffer: [u32; MOUSE_SIZE * MOUSE_SIZE], // Буфер для сохранения фона
-    mouse_active: bool,
+// Глобальная консоль
+lazy_static! {
+    pub static ref CONSOLE: Mutex<Console> = Mutex::new(Console::new());
 }
 
-unsafe impl Send for FrameBufferWriter {}
+pub struct Console {
+    buffer: [[char; COLS]; ROWS], // Память текста
+    x: usize,
+    y: usize,
+}
 
-impl FrameBufferWriter {
-    pub fn new(buffer: *mut u8, pitch: u64, width: u64, height: u64, bpp: u16) -> Self {
+impl Console {
+    pub fn new() -> Self {
         Self {
-            buffer, pitch, width, height, bpp,
-            x_pos: 10, y_pos: 10,
-            mouse_x: width as usize / 2,
-            mouse_y: height as usize / 2,
-            mouse_bg_buffer: [0; MOUSE_SIZE * MOUSE_SIZE],
-            mouse_active: false,
+            buffer: [[' '; COLS]; ROWS], // Заполняем пробелами
+            x: 0,
+            y: 0,
         }
     }
-
-    // --- ФУНКЦИИ РИСОВАНИЯ ---
-
-    pub fn read_pixel(&self, x: u64, y: u64) -> u32 {
-        if x >= self.width || y >= self.height { return 0; }
-        let offset = y * self.pitch + x * ((self.bpp as u64) / 8);
-        unsafe {
-            let ptr = self.buffer.add(offset as usize) as *const u32;
-            *ptr
-        }
-    }
-
-    pub fn draw_pixel(&mut self, x: u64, y: u64, color: u32) {
-        if x >= self.width || y >= self.height { return; }
-        let offset = y * self.pitch + x * ((self.bpp as u64) / 8);
-        unsafe {
-            let ptr = self.buffer.add(offset as usize) as *mut u32;
-            // Используем volatile write, чтобы компилятор не шалил
-            core::ptr::write_volatile(ptr, color);
-        }
-    }
-
-    // --- ЛОГИКА МЫШИ ---
-
-    pub fn update_mouse(&mut self, new_x: usize, new_y: usize) {
-        // 1. Если мышь уже была нарисована, стираем её (восстанавливаем фон)
-        if self.mouse_active {
-            for dy in 0..MOUSE_SIZE {
-                for dx in 0..MOUSE_SIZE {
-                    let bg_color = self.mouse_bg_buffer[dy * MOUSE_SIZE + dx];
-                    self.draw_pixel((self.mouse_x + dx) as u64, (self.mouse_y + dy) as u64, bg_color);
-                }
-            }
-        }
-
-        // 2. Обновляем координаты
-        self.mouse_x = new_x;
-        self.mouse_y = new_y;
-
-        // 3. Сохраняем фон под НОВЫМ местом
-        for dy in 0..MOUSE_SIZE {
-            for dx in 0..MOUSE_SIZE {
-                let color = self.read_pixel((new_x + dx) as u64, (new_y + dy) as u64);
-                self.mouse_bg_buffer[dy * MOUSE_SIZE + dx] = color;
-            }
-        }
-
-        // 4. Рисуем курсор (зеленый квадрат с белой окантовкой)
-        for dy in 0..MOUSE_SIZE {
-            for dx in 0..MOUSE_SIZE {
-                // Простейшая форма: рамка
-                if dx == 0 || dx == MOUSE_SIZE - 1 || dy == 0 || dy == MOUSE_SIZE - 1 {
-                    self.draw_pixel((new_x + dx) as u64, (new_y + dy) as u64, 0xFFFFFFFF); // Белый
-                } else {
-                    self.draw_pixel((new_x + dx) as u64, (new_y + dy) as u64, 0xFF00FF00); // Зеленый
-                }
-            }
-        }
-        
-        self.mouse_active = true;
-    }
-
-    // --- ТЕКСТОВЫЕ ФУНКЦИИ ---
 
     pub fn write_char(&mut self, c: char) {
         match c {
-            '\n' => self.new_line(),
+            '\n' => self.newline(),
             '\x08' => { // Backspace
-                if self.x_pos >= 18 {
-                    self.x_pos -= 8;
-                    self.draw_rect(self.x_pos, self.y_pos, 8, 12, 0x00000088); // Закрашиваем синим
+                if self.x > 0 {
+                    self.x -= 1;
+                    self.buffer[self.y][self.x] = ' ';
+                } else if self.y > 0 { // Подняться на строку вверх
+                     self.y -= 1;
+                     self.x = COLS - 1;
+                     self.buffer[self.y][self.x] = ' ';
                 }
             },
             _ => {
-                if self.x_pos + 8 >= self.width { self.new_line(); }
-                self.draw_char_pixels(c);
-                self.x_pos += 8;
+                if self.x >= COLS {
+                    self.newline();
+                }
+                self.buffer[self.y][self.x] = c;
+                self.x += 1;
             }
         }
     }
 
-    fn draw_rect(&mut self, x: u64, y: u64, w: u64, h: u64, color: u32) {
-        for dy in 0..h {
-            for dx in 0..w {
-                self.draw_pixel(x + dx, y + dy, color);
+    fn newline(&mut self) {
+        self.x = 0;
+        if self.y < ROWS - 1 {
+            self.y += 1;
+        } else {
+            // Скроллинг: сдвигаем все строки вверх
+            for row in 1..ROWS {
+                self.buffer[row - 1] = self.buffer[row];
             }
+            // Очищаем последнюю строку
+            self.buffer[ROWS - 1] = [' '; COLS];
         }
     }
 
-    fn new_line(&mut self) {
-        self.x_pos = 10;
-        self.y_pos += 14;
-        if self.y_pos + 14 >= self.height { self.y_pos = 10; } // Сброс
+    // Эта функция вызывается каждый кадр в main.rs
+    // Она рисует текст поверх окон
+    pub fn draw(&self, offset_x: usize, offset_y: usize) {
+        if let Some(screen) = &mut *SCREEN.lock() {
+            for row in 0..ROWS {
+                for col in 0..COLS {
+                    let c = self.buffer[row][col];
+                    if c != ' ' {
+                        // Рисуем символ
+                        // x = смещение окна + колонка * 8 пикселей
+                        // y = смещение окна + строка * 14 пикселей
+                        draw_char_on_screen(screen, c, offset_x + col * 8, offset_y + row * 14);
+                    }
+                }
+            }
+            
+            // Рисуем курсор (мигающий квадрат)
+            // (Простой белый квадрат после последней буквы)
+            let cursor_x = offset_x + self.x * 8;
+            let cursor_y = offset_y + self.y * 14;
+            // Рисуем прямоугольник курсора (8x14)
+            screen.fill_rect(cursor_x, cursor_y, 8, 14, 0xFFFFFFFF);
+        }
     }
+}
 
-    fn draw_char_pixels(&mut self, c: char) {
-        let bitmap = match BASIC_FONTS.get(c) {
-            Some(g) => g,
-            None => return,
-        };
-        for (y, row) in bitmap.iter().enumerate() {
-            for x in 0..8 {
-                if *row & (1 << x) != 0 {
-                    self.draw_pixel(self.x_pos + x as u64, self.y_pos + y as u64, 0xFFFFFFFF);
+// Хелпер для рисования одной буквы
+fn draw_char_on_screen(screen: &mut crate::graphics::Screen, c: char, x: usize, y: usize) {
+    if let Some(glyph) = BASIC_FONTS.get(c) {
+        for (dy, row) in glyph.iter().enumerate() {
+            for dx in 0..8 {
+                if *row & (1 << dx) != 0 {
+                    screen.put_pixel(x + dx, y + dy, 0xFFFFFFFF); // Белый текст
                 }
             }
         }
     }
 }
 
-// Реализация Write для макросов
-impl fmt::Write for FrameBufferWriter {
+// --- МЫШЬ (Просто обновляет координаты) ---
+// Рисует теперь main.rs, writer только хранит координаты (хотя лучше бы это тоже вынести, но оставим)
+pub static mut OLD_MOUSE_X: usize = 0;
+pub static mut OLD_MOUSE_Y: usize = 0;
+
+pub fn update_mouse_cursor(_x: usize, _y: usize) {
+    // Эта функция теперь пустая или может просто обновлять глобальные переменные,
+    // если мы хотим хранить их тут. Но main.rs берет их из interrupts.
+    // Оставим пустой для совместимости, чтобы код компилировался.
+}
+
+// Функция рисования мыши для main.rs
+pub fn draw_mouse(x: usize, y: usize) {
+    if let Some(screen) = &mut *SCREEN.lock() {
+        // Зеленый курсор 10x10 с рамкой
+        for dy in 0..10 {
+            for dx in 0..10 {
+                if dx == 0 || dx == 9 || dy == 0 || dy == 9 {
+                    screen.put_pixel(x + dx, y + dy, 0xFFFFFFFF);
+                } else {
+                    screen.put_pixel(x + dx, y + dy, 0xFF00FF00);
+                }
+            }
+        }
+    }
+}
+
+// --- МАКРОСЫ ---
+impl fmt::Write for Console {
     fn write_str(&mut self, s: &str) -> fmt::Result {
         for c in s.chars() { self.write_char(c); }
         Ok(())
     }
 }
-
-// --- МАКРОСЫ И ГЛОБАЛЬНЫЕ ФУНКЦИИ ---
 
 #[doc(hidden)]
 pub fn _print(args: fmt::Arguments) {
@@ -162,8 +145,8 @@ pub fn _print(args: fmt::Arguments) {
     use x86_64::instructions::interrupts;
     
     interrupts::without_interrupts(|| {
-        if let Some(writer) = &mut *WRITER.lock() {
-            writer.write_fmt(args).unwrap();
+        if let Some(mut console) = CONSOLE.try_lock() {
+            console.write_fmt(args).unwrap();
         }
     });
 }
@@ -177,14 +160,4 @@ macro_rules! print {
 macro_rules! println {
     () => ($crate::print!("\n"));
     ($($arg:tt)*) => ($crate::print!("{}\n", format_args!($($arg)*)));
-}
-
-// Функция для обновления мыши из main.rs
-pub fn update_mouse_cursor(x: usize, y: usize) {
-    use x86_64::instructions::interrupts;
-    interrupts::without_interrupts(|| {
-        if let Some(writer) = &mut *WRITER.lock() {
-            writer.update_mouse(x, y);
-        }
-    });
 }
