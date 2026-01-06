@@ -11,6 +11,7 @@ pub const PIC_2_OFFSET: u8 = PIC_1_OFFSET + 8;
 
 pub static PICS: Mutex<ChainedPics> = Mutex::new(unsafe { ChainedPics::new(PIC_1_OFFSET, PIC_2_OFFSET) });
 pub static STOP_VM: AtomicBool = AtomicBool::new(false);
+pub static mut MOUSE_LEFT_PRESSED: bool = false;
 
 #[derive(Debug, Clone, Copy)]
 #[repr(u8)]
@@ -123,6 +124,8 @@ pub fn handle_mouse_raw(packet: u8) {
                 MOUSE_PACKET[2] = packet;
                 MOUSE_CYCLE = 0;
                 let _header = MOUSE_PACKET[0];
+
+                MOUSE_LEFT_PRESSED = (_header & 0x01) != 0;
                 
                 let mut dx = MOUSE_PACKET[1] as i8 as i32;
                 let mut dy = MOUSE_PACKET[2] as i8 as i32;

@@ -119,37 +119,70 @@ pub extern "C" fn _start() -> ! {
     println!("\nType 'help' for commands.");
     print!("> ");
 
+
+
+    // Состояние окна
+    let mut win_x = 50;
+    let mut win_y = 50;
+    let win_w = 800;
+    let win_h = 500;
+
+    // Флаг: тянем ли мы окно сейчас?
+    let mut is_dragging = false;
+    // Запоминаем, за какую часть заголовка схватили (смещение)
+    let mut drag_offset_x = 0;
+    let mut drag_offset_y = 0;
+
     // --- ГЛАВНЫЙ ЦИКЛ (Main Loop) ---
     loop {
         // КРИТИЧЕСКАЯ СЕКЦИЯ ОТРИСОВКИ
         x86_64::instructions::interrupts::without_interrupts(|| {
             
-            // 1. СЛОЙ ФОНА
-            if let Some(screen) = &mut *SCREEN.lock() {
-                screen.clear(0x00224466); // Темно-синий рабочий стол
+            let mx = unsafe { kernel_core::interrupts::MOUSE_X as usize };
+            let my = unsafe { kernel_core::interrupts::MOUSE_Y as usize };
+            let lmb = unsafe { kernel_core::interrupts::MOUSE_LEFT_PRESSED };
+
+            // ЛОГИКА ПЕРЕТАСКИВАНИЯ
+            if lmb {
+                if is_dragging {
+                    // Уже тянем -> обновляем позицию окна
+                    // Новая позиция = Текущая мышь - Смещение захвата
+                    // (Используем saturating_sub чтобы не улететь в минус)
+                    win_x = mx.saturating_sub(drag_offset_x);
+                    win_y = my.saturating_sub(drag_offset_y);
+                } else {
+                    // Кликнули только что. Проверяем, попали ли в ЗАГОЛОВОК окна?
+                    // Заголовок это область от (win_x, win_y) до (win_x + w, win_y + 30)
+                    if mx >= win_x && mx <= win_x + win_w && 
+                        my >= win_y && my <= win_y + 30 {
+                        is_dragging = true;
+                        drag_offset_x = mx - win_x;
+                        drag_offset_y = my - win_y;
+                    }
+                }
+            } else {
+                // Кнопка отпущена -> перестаем тянуть
+                is_dragging = false;
             }
 
-            // 2. СЛОЙ ОКОН
-            // Рисуем наши тестовые окна
-            // (Кстати, окно терминала у нас было: Window::new(50, 50, 300, 200...))
-            // Давай нарисуем его вручную или через цикл, если у тебя есть массив windows.
-            // Если массива нет, нарисуем одно "Главное окно":
+            // 1. Очистка фона
             if let Some(screen) = &mut *SCREEN.lock() {
-                // Тень окна (смещение +5, +5, черный цвет)
-                screen.fill_rect(55, 55, 800, 500, 0xFF111111);
+                screen.clear(0x00224466);
                 
-                // Тело окна (Темно-синий терминал)
-                screen.fill_rect(50, 50, 800, 500, 0xFF000088); 
-                
-                // Заголовок
-                screen.fill_rect(50, 50, 800, 25, 0xFFAAAAAA); // Серый заголовок
+                // Тень
+                screen.fill_rect(win_x + 10, win_y + 10, win_w, win_h, 0xFF111111);
+                // Окно
+                screen.fill_rect(win_x, win_y, win_w, win_h, 0xFF000088);
+                // Заголовок (меняем цвет, если тащим)
+                let title_color = if is_dragging { 0xFF5555AA } else { 0xFFAAAAAA };
+                screen.fill_rect(win_x, win_y, win_w, 30, title_color);
             }
 
-            // 3. СЛОЙ ТЕКСТА (Консоль)
-            // Мы просим writer нарисовать содержимое буфера поверх окна.
-            // Смещение (60, 80) — это чтобы текст был внутри синего прямоугольника
+            // 3. Текст
+            // ВАЖНО: Мы должны сказать консоли рисовать текст по НОВЫМ координатам окна!
+            // Смещение текста внутри окна: +10 по X, +35 по Y (под заголовком)
             if let Some(console) = kernel_core::writer::CONSOLE.try_lock() {
-                console.draw(60, 80); 
+                console.draw(win_x + 10, win_y + 35); 
             }
 
             // 4. СЛОЙ МЫШИ
