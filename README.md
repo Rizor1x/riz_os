@@ -1,61 +1,47 @@
 # RizOS 🦀
 
 Experimental x86_64 Operating System written in Rust.
-Focuses on Async/Await multitasking, UEFI booting, and Hardware Virtualization (Hypervisor).
+Features a custom GUI, Async/Await multitasking, and a native Type-1 Hypervisor (Intel VT-x).
 
-## 🚀 Current Status: v0.1 (Stable Base)
+## 🚀 Current Status: v0.2 (GUI & Hypervisor Base)
 
-### ✅ Implemented Features (Core)
-- [x] **Bootloader:** Limine (UEFI) with Limine Boot Protocol.
-- [x] **Kernel:** 64-bit Higher Half Kernel written in Rust (no_std).
-- [x] **Memory Management:**
-    - Physical Memory Manager (Frame Allocator).
-    - Virtual Memory Manager (Page Tables & HHDM).
-    - Heap Allocator (Linked List, `Vec`/`Box` support).
-- [x] **Interrupts & Safety:**
-    - IDT (Interrupt Descriptor Table).
-    - GDT (Global Descriptor Table).
-    - TSS (Task State Segment) with Double Fault stack.
-    - PIC 8259 Remapping.
-- [x] **Multitasking:**
-    - Cooperative Async/Await Executor.
-    - Non-blocking drivers.
+### 🎨 Graphical User Interface (GUI)
+- [x] **Video:** Linear Framebuffer (1280x800).
+- [x] **Engine:** Double Buffering (Zero flicker, no artifacts).
+- [x] **Window System:**
+    - Window rendering (Body, Title bar, Shadows).
+    - **Drag & Drop** support (Move windows with mouse).
+    - Content clipping (Text moves with window).
+- [x] **Input:**
+    - PS/2 Mouse (Hardware acceleration, smooth movement).
+    - PS/2 Keyboard (Interrupt-based, responsive).
 
-### 🖥️ Devices & I/O
-- [x] **Graphics:** Framebuffer output (Linear Graphics).
-- [x] **Output:** 
-    - Serial Port (COM1) logging.
-    - Graphical Terminal (font8x8 rendering).
-- [x] **Input:** 
-    - PS/2 Keyboard (Async Stream).
-    - PS/2 Mouse (Async Stream, Graphical Cursor).
-- [x] **Filesystem:** 
-    - InitRD (Ramdisk) via USTAR format.
-    - Read-only support (`ls`, `cat`).
+### ⚡ Hypervisor (Intel VT-x)
+- [x] **Hardware Check:** VMX support detection.
+- [x] **Lifecycle:** `VMXON`, `VMCLEAR`, `VMPTRLD` sequences implemented.
+- [x] **Execution Loop:**
+    - Custom Assembly trampoline for `vmlaunch`/`vmresume`.
+    - Stable VM Exit handling (Host <-> Guest switching).
+    - Interrupt Injection (Mouse works while VM is running).
+- [x] **Guest State:** 64-bit "Mirror" Guest (Unrestricted Mode preparation).
 
-### 🛠️ Shell
-- [x] Interactive Command Line Interface (CLI).
-- [x] Commands: `help`, `ver`, `echo`, `ls`, `cat`, `clear`, `cpu`.
+### 🛠️ Core Features
+- [x] **Filesystem:** InitRD (TAR) read-only support.
+- [x] **Shell:** Interactive command line inside a GUI window.
+- [x] **Multitasking:** Cooperative Async Executor + Hardware Interrupts.
 
 ---
 
-## 🗺️ Roadmap & Goals
+## 🗺️ Roadmap: The Path to v0.3
 
-### 🚧 Phase 2: Hypervisor (In Progress)
-The main goal is to run Linux as a Guest VM.
-- [x] **VMX Detection:** CPUID feature check.
-- [x] **VMX Enable:** Executing `vmxon` instruction.
-- [x] **VMCS Setup:** Configuring Virtual Machine Control Structure.
-- [x] **Guest State:** Setting up guest registers and segments.
-- [x] **VM Loop:** `vmlaunch` / `vmresume` implementation.
-- [ ] **EPT:** Extended Page Tables (Memory virtualization).
+### 🏗️ Phase 3: Window Manager (Refactoring)
+Currently, window logic is hardcoded in `main.rs`.
+- [ ] **WindowManager Class:** Abstract window creation (`WindowManager::new_window()`).
+- [ ] **Multiple Windows:** Support for overlapping windows (Z-order).
+- [ ] **Focus:** Click to focus / bring to front.
+- [ ] **Widgets:** Buttons, Labels.
 
-### 🔮 Phase 3: User Mode & Security
-- [ ] **Ring 3 Jump:** Context switching to User Mode.
-- [ ] **Syscalls:** `syscall`/`sysret` handler.
-- [ ] **ELF Loader:** Loading userspace programs.
-
-### 🌟 Phase 4: Compatibility & GUI
-- [ ] **Window Manager:** Drag & Drop windows.
-- [ ] **Linux VM Integration:** Running Linux kernel inside RizOS.
-- [ ] **PCIe Passthrough:** Passing GPU to the Linux Guest.
+### 🐧 Phase 4: Running Linux (The Big Goal)
+- [ ] **Guest Payload:** Loading a real kernel binary into Guest Memory (instead of `hlt` loop).
+- [ ] **EPT (Extended Page Tables):** Implementing memory virtualization (isolating Guest RAM).
+- [ ] **Serial Emulation:** intercepting Guest IO to show Linux boot logs in RizOS Shell.
