@@ -4,29 +4,22 @@ use x86_64::registers::model_specific::Msr;
 use x86_64::instructions::tables::{sgdt, sidt};
 use core::arch::global_asm;
 
-// Переменная для сохранения стека хоста
-// Должна быть в .bss или .data, global_asm видит её по символу
-extern "C" {
-    static mut HOST_RSP_SAVE: u64;
-}
-
+// Переменная для сохранения стека. 
+// Ассемблер запишет сюда RSP перед запуском виртуалки.
 #[no_mangle]
-static mut HOST_RSP_SAVE_VAL: u64 = 0;
+static mut HOST_STACK_PTR: u64 = 0;
 
-// АССЕМБЛЕРНЫЙ ТРАМПЛИН
+// --- АССЕМБЛЕРНЫЙ ТРАМПЛИН ---
 global_asm!(r#"
-.section .data
-.global HOST_RSP_SAVE
-HOST_RSP_SAVE: .quad 0
-
 .section .text
-.global run_vm_loop
+.global run_vm_loop_asm
 .global vm_exit_entry
 
-// fn run_vm_loop(launched: bool)
-// RDI = launched (1 = resume, 0 = launch)
-run_vm_loop:
-    // 1. Сохраняем регистры Rust (Callee-saved)
+// fn run_vm_loop_asm(launched: bool) -> u64
+// RDI = launched (1=Resume, 0=Launch)
+// Возвращает: 0 (Успешный выход), 1 (Ошибка запуска)
+run_vm_loop_asm:
+    // 1. Сохраняем регистры Rust
     push rbx
     push rbp
     push r12
@@ -34,38 +27,39 @@ run_vm_loop:
     push r14
     push r15
 
-    // 2. Сохраняем стек хоста
+    // 2. Сохраняем текущий Стек (RSP) в переменную
     mov rax, rsp
-    mov qword ptr [rip + HOST_RSP_SAVE], rax
+    mov qword ptr [rip + {HOST_STACK_PTR}], rax
 
-    // 3. Выбираем Launch или Resume
+    // 3. Выбор: Launch или Resume?
     cmp rdi, 0
     jne .Lresume
 
 .Llaunch:
     vmlaunch
-    jmp .Lerror
+    jmp .Lfailure // Если мы здесь - ошибка
 
 .Lresume:
     vmresume
-    jmp .Lerror
+    jmp .Lfailure // Если мы здесь - ошибка
 
-.Lerror:
-    // Если запуск не удался - просто возвращаемся (можно добавить обработку ошибок)
+.Lfailure:
+    // Восстанавливаем регистры и возвращаем ошибку
     pop r15
     pop r14
     pop r13
     pop r12
     pop rbp
     pop rbx
+    mov rax, 1 
     ret
 
-// Точка входа после VMExit
+// СЮДА ПРОЦЕССОР ПРЫГАЕТ ПРИ ВЫХОДЕ (HOST_RIP)
 vm_exit_entry:
-    // 4. Восстанавливаем стек хоста
-    mov rsp, qword ptr [rip + HOST_RSP_SAVE]
+    // 4. Восстанавливаем Стек Хоста! (Самое важное)
+    mov rsp, qword ptr [rip + {HOST_STACK_PTR}]
 
-    // 5. Восстанавливаем регистры Rust
+    // 5. Восстанавливаем регистры
     pop r15
     pop r14
     pop r13
@@ -73,36 +67,30 @@ vm_exit_entry:
     pop rbp
     pop rbx
 
-    // 6. Возвращаемся в функцию hypervisor::start_vmx
+    // 6. Возвращаем 0 (Успех)
+    xor rax, rax
     ret
-"#);
+"#, 
+HOST_STACK_PTR = sym HOST_STACK_PTR);
 
+// Объявляем функции для Rust
 extern "C" {
-    pub fn run_vm_loop(launched: bool);
+    pub fn run_vm_loop_asm(launched: bool) -> u64;
+    pub fn vm_exit_entry(); // Это просто метка адреса
 }
 
-// --- ДАЛЕЕ КОД VMREAD/VMWRITE (БЕЗ ИЗМЕНЕНИЙ) ---
+// ... (Дальше стандартные vmread/vmwrite, setup_host и т.д. без изменений) ...
 
 pub unsafe fn vmwrite(field: u64, value: u64) -> Result<(), &'static str> {
     let rflags: u64;
-    core::arch::asm!(
-        "vmwrite {1}, {0}", 
-        "pushf", "pop {2}",
-        in(reg) value, in(reg) field, out(reg) rflags,
-        options(nostack, preserves_flags)
-    );
+    core::arch::asm!("vmwrite {1}, {0}", "pushf", "pop {2}", in(reg) value, in(reg) field, out(reg) rflags, options(nostack, preserves_flags));
     if (rflags & 1) != 0 || (rflags & (1 << 6)) != 0 { Err("VMWRITE Failed") } else { Ok(()) }
 }
 
 pub unsafe fn vmread(field: u64) -> Result<u64, &'static str> {
     let mut value: u64;
     let rflags: u64;
-    core::arch::asm!(
-        "vmread {1}, {0}", 
-        "pushf", "pop {2}",
-        in(reg) field, lateout(reg) value, out(reg) rflags,
-        options(nostack, preserves_flags)
-    );
+    core::arch::asm!("vmread {1}, {0}", "pushf", "pop {2}", in(reg) field, lateout(reg) value, out(reg) rflags, options(nostack, preserves_flags));
     if (rflags & 1) != 0 || (rflags & (1 << 6)) != 0 { Err("VMREAD Failed") } else { Ok(value) }
 }
 
@@ -126,40 +114,39 @@ pub unsafe fn setup_host_state() -> Result<(), &'static str> {
     vmwrite(HOST_CR0, Cr0::read_raw())?;
     vmwrite(HOST_CR3, Cr3::read().0.start_address().as_u64())?;
     vmwrite(HOST_CR4, Cr4::read_raw())?;
-
     vmwrite(HOST_CS_SELECTOR, CS::get_reg().0 as u64)?;
     vmwrite(HOST_SS_SELECTOR, SS::get_reg().0 as u64)?;
     vmwrite(HOST_DS_SELECTOR, DS::get_reg().0 as u64)?;
     vmwrite(HOST_ES_SELECTOR, ES::get_reg().0 as u64)?;
     vmwrite(HOST_FS_SELECTOR, FS::get_reg().0 as u64)?;
     vmwrite(HOST_GS_SELECTOR, GS::get_reg().0 as u64)?;
-    
-    let tr: u16;
-    core::arch::asm!("str {0:x}", out(reg) tr);
+    let tr: u16; core::arch::asm!("str {0:x}", out(reg) tr);
     vmwrite(HOST_TR_SELECTOR, tr as u64)?;
-
     vmwrite(HOST_FS_BASE, Msr::new(0xC0000100).read())?;
     vmwrite(HOST_GS_BASE, Msr::new(0xC0000101).read())?;
-    
-    let gdtr = sgdt();
-    let idtr = sidt();
+    let gdtr = sgdt(); let idtr = sidt();
     vmwrite(HOST_GDTR_BASE, gdtr.base.as_u64())?;
     vmwrite(HOST_IDTR_BASE, idtr.base.as_u64())?;
-    
     let tss_base = crate::gdt::get_tss_address();
     vmwrite(HOST_TR_BASE, tss_base)?; 
-
     vmwrite(HOST_IA32_SYSENTER_CS, Msr::new(0x174).read())?;
     vmwrite(HOST_IA32_SYSENTER_ESP, Msr::new(0x175).read())?;
     vmwrite(HOST_IA32_SYSENTER_EIP, Msr::new(0x176).read())?;
+    let efer = Msr::new(0xC0000080).read();
+    vmwrite(HOST_IA32_EFER, efer)?;
+
+    // --- ВАЖНО: Устанавливаем точку возврата на наш ASM код ---
+    let rip = vm_exit_entry as *const () as u64;
+    vmwrite(HOST_RIP, rip)?;
+    // Стек будет восстановлен ASM кодом, но для валидности запишем 0 (или текущий)
+    vmwrite(HOST_RSP, 0)?; 
 
     Ok(())
 }
 
 pub unsafe fn setup_vm_controls_64bit() -> Result<(), &'static str> {
     use fields::*;
-
-    // ВКЛЮЧАЕМ ВЫХОД ПО ПРЕРЫВАНИЯМ
+    // Pin-Based: Enable External Interrupt Exiting (Bit 0) = 1
     let pin = adjust_vmx_controls(1, IA32_VMX_PINBASED_CTLS);
     vmwrite(PIN_BASED_VM_EXEC_CONTROL, pin as u64)?;
 
@@ -171,50 +158,39 @@ pub unsafe fn setup_vm_controls_64bit() -> Result<(), &'static str> {
 
     let entry = adjust_vmx_controls(1 << 9, IA32_VMX_ENTRY_CTLS);
     vmwrite(VM_ENTRY_CONTROLS, entry as u64)?;
-
     Ok(())
 }
 
 pub unsafe fn setup_guest_state_64bit(entry_point: u64) -> Result<(), &'static str> {
     use fields::*;
-
     vmwrite(GUEST_CR0, Cr0::read_raw())?;
     vmwrite(GUEST_CR4, Cr4::read_raw())?;
     vmwrite(GUEST_CR3, Cr3::read().0.start_address().as_u64())?;
-
     vmwrite(GUEST_CS_SELECTOR, 8)?; vmwrite(GUEST_CS_BASE, 0)?; vmwrite(GUEST_CS_LIMIT, 0xFFFFFFFF)?; vmwrite(GUEST_CS_AR_BYTES, 0xA09B)?; 
     vmwrite(GUEST_SS_SELECTOR, 16)?; vmwrite(GUEST_SS_BASE, 0)?; vmwrite(GUEST_SS_LIMIT, 0xFFFFFFFF)?; vmwrite(GUEST_SS_AR_BYTES, 0xC093)?;
-
     for &seg in &[GUEST_DS_SELECTOR, GUEST_ES_SELECTOR, GUEST_FS_SELECTOR, GUEST_GS_SELECTOR] { vmwrite(seg, 0)?; }
     for &base in &[GUEST_DS_BASE, GUEST_ES_BASE, GUEST_FS_BASE, GUEST_GS_BASE] { vmwrite(base, 0)?; }
     for &limit in &[GUEST_DS_LIMIT, GUEST_ES_LIMIT, GUEST_FS_LIMIT, GUEST_GS_LIMIT] { vmwrite(limit, 0)?; }
     for &ar in &[GUEST_DS_AR_BYTES, GUEST_ES_AR_BYTES, GUEST_FS_AR_BYTES, GUEST_GS_AR_BYTES] { vmwrite(ar, 0x10000)?; }
-    
     let tr_base = crate::gdt::get_tss_address();
     vmwrite(GUEST_TR_SELECTOR, 0x20)?; vmwrite(GUEST_TR_BASE, tr_base)?; vmwrite(GUEST_TR_LIMIT, 0xFFFF)?; vmwrite(GUEST_TR_AR_BYTES, 0x008B)?;
     vmwrite(GUEST_LDTR_SELECTOR, 0)?; vmwrite(GUEST_LDTR_BASE, 0)?; vmwrite(GUEST_LDTR_LIMIT, 0)?; vmwrite(GUEST_LDTR_AR_BYTES, 0x10000)?;
-
     let gdtr = sgdt(); let idtr = sidt();
     vmwrite(GUEST_GDTR_BASE, gdtr.base.as_u64())?; vmwrite(GUEST_GDTR_LIMIT, gdtr.limit as u64)?;
     vmwrite(GUEST_IDTR_BASE, idtr.base.as_u64())?; vmwrite(GUEST_IDTR_LIMIT, idtr.limit as u64)?;
-
     vmwrite(GUEST_IA32_EFER, Msr::new(0xC0000080).read())?;
-
     vmwrite(GUEST_RIP, entry_point)?;
     vmwrite(GUEST_RSP, 0)?; 
     vmwrite(GUEST_RFLAGS, 0x2)?; 
-
-    vmwrite(GUEST_ACTIVITY_STATE, 0)?;
-    vmwrite(GUEST_INTERRUPTIBILITY_INFO, 0)?;
-    vmwrite(GUEST_SYSENTER_CS, 0)?;
-    vmwrite(GUEST_SYSENTER_ESP, 0)?;
-    vmwrite(GUEST_SYSENTER_EIP, 0)?;
+    vmwrite(GUEST_ACTIVITY_STATE, 0)?; vmwrite(GUEST_INTERRUPTIBILITY_INFO, 0)?;
+    vmwrite(GUEST_SYSENTER_CS, 0)?; vmwrite(GUEST_SYSENTER_ESP, 0)?; vmwrite(GUEST_SYSENTER_EIP, 0)?;
     vmwrite(GUEST_VMCS_LINK_PTR, 0xFFFFFFFFFFFFFFFF)?;
-
     Ok(())
 }
 
 pub mod fields {
+    // Вставь сюда все константы полей (или оставь как было, если они есть)
+    // Обязательно: HOST_RIP, HOST_RSP, EPT_POINTER
     pub const GUEST_ES_SELECTOR: u64 = 0x0800;
     pub const GUEST_CS_SELECTOR: u64 = 0x0802;
     pub const GUEST_SS_SELECTOR: u64 = 0x0804;
@@ -299,4 +275,5 @@ pub mod fields {
     pub const GUEST_SYSENTER_EIP: u64 = 0x6824;
     pub const EPT_POINTER: u64 = 0x201A;
     pub const HOST_IA32_SYSENTER_CS: u64 = 0x4c00; 
+    pub const HOST_IA32_EFER: u64 = 0x2C02;
 }

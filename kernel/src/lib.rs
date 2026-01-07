@@ -21,14 +21,21 @@ pub mod hypervisor;
 pub mod shell;
 pub mod graphics;
 pub mod window;
+pub mod linux;
 
 use core::sync::atomic::{AtomicU64};
+use lazy_static::lazy_static;
+use alloc::vec::Vec;
+use spin::mutex::Mutex;
 
 use limine::request::MemoryMapRequest;
 pub static HHDM_OFFSET: AtomicU64 = AtomicU64::new(0);
 
+lazy_static! {
+    pub static ref LINUX_KERNEL_BUFFER: Mutex<Vec<u8>> = Mutex::new(Vec::new());
+}
 
-pub fn init(buffer: *mut u8, pitch: u64, width: u64, height: u64, bpp: u16) {
+pub fn init(buffer: *mut u8, pitch: u64, width: u64, height: u64, _bpp: u16) {
     serial::init();
     
     // Инициализация графического движка

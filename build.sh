@@ -14,9 +14,9 @@ mkdir -p iso_root/EFI/BOOT
 
 # --- НОВАЯ ЧАСТЬ: СОЗДАНИЕ ДИСКА ---
 echo "Packing files..."
-# Создаем архив disk.tar из содержимого папки files/
-# Флаг --format=ustar важен для совместимости!
-tar -cvf disk.tar -C files/ --format=ustar .
+cd files
+tar -cvf ../disk.tar --format=ustar *
+cd ..
 
 # Копируем архив в ISO
 cp disk.tar iso_root/boot/disk.tar
@@ -49,4 +49,4 @@ OVMF_PATH="/usr/share/edk2/ovmf/OVMF_CODE.fd"
 [ ! -f "$OVMF_PATH" ] && OVMF_PATH="/usr/share/OVMF/OVMF_CODE.fd"
 
 # Запускаем!
-qemu-system-x86_64 -enable-kvm -cpu host -M q35 -m 2G -cdrom riz_os.iso -boot d -serial stdio -bios "$OVMF_PATH" -vga std
+qemu-system-x86_64 -enable-kvm -cpu host -smp 4 -M q35 -m 2G -cdrom riz_os.iso -boot d -serial stdio -bios "$OVMF_PATH" -vga std
